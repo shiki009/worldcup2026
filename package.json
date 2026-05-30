@@ -1,0 +1,12 @@
+{
+  "name": "worldcup2026-tallinn-planner",
+  "version": "1.0.0",
+  "description": "World Cup 2026 watch planner in Tallinn time",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
