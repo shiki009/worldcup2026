@@ -1,0 +1,40 @@
+name: Update scores
+
+# Pulls live World Cup results from ESPN and commits scores.json whenever it
+# changes. Railway redeploys on push, so the deployed site stays current.
+on:
+  schedule:
+    - cron: "*/15 * * * *" # every 15 minutes (UTC); only commits on change
+  workflow_dispatch: {}      # allow manual runs
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-scores
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Fetch latest scores
+        run: node update-scores.js
+
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- scores.json; then
+            echo "No score changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add scores.json
+          git commit -m "chore: update live scores"
+          git push
