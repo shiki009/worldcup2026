@@ -650,15 +650,28 @@ async function loadScores() {
   } catch (e) { /* offline / not deployed yet — bracket simply shows fewer results */ }
 }
 
-// Best-effort live top-up straight from ESPN (CORS-open). Only a small window of
-// recent days, so in-progress and just-finished games update without a redeploy.
-async function liveRefresh() {
-  const ESPN = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard";
+const ymd = (d) => `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
+
+// The recent window (today ±1 UTC day) — cheap, used for the periodic live poll.
+function recentDays() {
   const now = new Date();
-  const days = [-1, 0, 1].map(off => {
-    const d = new Date(now.getTime() + off * 86400000);
-    return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
-  });
+  return [-1, 0, 1].map(off => ymd(new Date(now.getTime() + off * 86400000)));
+}
+// Every tournament day up to tomorrow — used once on load to backfill the full
+// history straight from ESPN, so standings are complete even if the deployed
+// scores.json snapshot is stale (the cron commits to GitHub, not to Railway).
+function tournamentDays() {
+  const start = Date.UTC(2026, 5, 11);              // 11 Jun 2026
+  const end = Math.min(Date.now() + 86400000, Date.UTC(2026, 6, 20)); // ≤ 20 Jul
+  const out = [];
+  for (let t = start; t <= end; t += 86400000) out.push(ymd(new Date(t)));
+  return out;
+}
+
+// Best-effort live top-up straight from ESPN (CORS-open). `days` is a list of
+// YYYYMMDD strings; in-progress and finished games update without a redeploy.
+async function liveRefresh(days = recentDays()) {
+  const ESPN = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard";
   let changed = false;
   for (const ds of days) {
     let data;
@@ -1130,8 +1143,11 @@ document.getElementById("resetWindow").addEventListener("click", () => {
 render();
 loadScores().then(() => {
   render();
-  liveRefresh();
-  setInterval(liveRefresh, 60000);
+  // Full backfill from ESPN once (covers gaps in the deployed snapshot), then
+  // keep just the recent window fresh on a timer for live games.
+  liveRefresh(tournamentDays()).finally(() => {
+    setInterval(() => liveRefresh(recentDays()), 60000);
+  });
 });
 </script>
 </body>
