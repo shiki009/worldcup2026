@@ -640,12 +640,28 @@ function normTeam(s) {
   return ALIASES[n] || n;
 }
 
+// Reverse lookup: normalized team name -> our canonical name (for ESPN data).
+const NORM_TO_CANON = (() => {
+  const m = {};
+  for (const name of Object.keys(FLAGS)) m[normTeam(name)] = name;
+  return m;
+})();
+// The 48 real teams (all appear in the group stage) — to tell whether a knockout
+// fixture's teams are actually determined yet.
+const REAL_TEAMS = new Set();
+for (const m of MATCHES) {
+  if (m.round === "group") { REAL_TEAMS.add(normTeam(m.home)); REAL_TEAMS.add(normTeam(m.away)); }
+}
+
+let koTeams = {}; // n -> { h, a } actual (normalized) teams for resolved knockout fixtures
+
 async function loadScores() {
   try {
     const res = await fetch("scores.json", { cache: "no-store" });
     if (res.ok) {
       const data = await res.json();
       if (data && data.scores) scores = data.scores;
+      if (data && data.koTeams) koTeams = data.koTeams;
     }
   } catch (e) { /* offline / not deployed yet — bracket simply shows fewer results */ }
 }
@@ -687,10 +703,9 @@ async function liveRefresh(days = recentDays()) {
       const state = st.state;
       let code = st.name === "STATUS_FULL_TIME" || state === "post" ? "FT"
         : st.name === "STATUS_HALFTIME" ? "HT" : state === "in" ? "LIVE" : "PRE";
-      if (code === "PRE") continue;
       const sides = {};
       for (const c of comp.competitors || []) sides[c.homeAway] = c;
-      if (!sides.home || !sides.away || sides.home.score == null || sides.away.score == null) continue;
+      if (!sides.home || !sides.away) continue;
       const cands = BY_INSTANT.get(ev.date.slice(0, 16));
       if (!cands) continue;
       const eh = normTeam(sides.home.team.displayName), ea = normTeam(sides.away.team.displayName);
@@ -703,11 +718,35 @@ async function liveRefresh(days = recentDays()) {
           if (sc > best) { best = sc; pick = c; }
         }
       }
-      scores[pick.n] = { h: Number(sides.home.score), a: Number(sides.away.score), s: code, clock: st.shortDetail || "" };
+      // Capture resolved knockout matchups (even before kickoff) for the bracket.
+      if (pick.round !== "group" && REAL_TEAMS.has(eh) && REAL_TEAMS.has(ea)) {
+        if (!koTeams[pick.n] || koTeams[pick.n].h !== eh || koTeams[pick.n].a !== ea) {
+          koTeams[pick.n] = { h: eh, a: ea }; changed = true;
+        }
+      }
+      if (code === "PRE") continue;
+      if (sides.home.score == null || sides.away.score == null) continue;
+      scores[pick.n] = {
+        h: Number(sides.home.score), a: Number(sides.away.score),
+        eh, ea, s: code, clock: st.shortDetail || ""
+      };
       changed = true;
     }
   }
   if (changed) render();
+}
+
+// Attribute a stored score to a given home/away pairing by team name, so goals
+// land on the right side even when our fixture's order differs from ESPN's.
+// Falls back to raw h/a for legacy entries without eh/ea.
+function orientedGoals(sc, homeName, awayName) {
+  if (!sc) return null;
+  if (sc.eh) {
+    const hn = normTeam(homeName || ""), an = normTeam(awayName || "");
+    if (hn === sc.eh || an === sc.ea) return { hg: sc.h, ag: sc.a };
+    if (hn === sc.ea || an === sc.eh) return { hg: sc.a, ag: sc.h };
+  }
+  return { hg: sc.h, ag: sc.a };
 }
 
 // ============================================================================
@@ -728,9 +767,10 @@ function headToHead(teams, groupMatches) {
     const sc = scores[m.n];
     if (!sc || sc.s !== "FT") continue;
     if (!(m.home in t) || !(m.away in t)) continue;
+    const { hg, ag } = orientedGoals(sc, m.home, m.away);
     const H = t[m.home], A = t[m.away];
-    H.gf += sc.h; H.ga += sc.a; A.gf += sc.a; A.ga += sc.h;
-    if (sc.h > sc.a) H.pts += 3; else if (sc.a > sc.h) A.pts += 3; else { H.pts++; A.pts++; }
+    H.gf += hg; H.ga += ag; A.gf += ag; A.ga += hg;
+    if (hg > ag) H.pts += 3; else if (ag > hg) A.pts += 3; else { H.pts++; A.pts++; }
   }
   Object.values(t).forEach(r => (r.gd = r.gf - r.ga));
   return t;
@@ -746,11 +786,12 @@ function computeStandings() {
   for (const m of GROUP_MATCHES) {
     const sc = scores[m.n];
     if (!sc || sc.s !== "FT") continue;
+    const { hg, ag } = orientedGoals(sc, m.home, m.away);
     const H = tables[m.group][m.home], A = tables[m.group][m.away];
     H.p++; A.p++;
-    H.gf += sc.h; H.ga += sc.a; A.gf += sc.a; A.ga += sc.h;
-    if (sc.h > sc.a) { H.w++; A.l++; H.pts += 3; }
-    else if (sc.h < sc.a) { A.w++; H.l++; A.pts += 3; }
+    H.gf += hg; H.ga += ag; A.gf += ag; A.ga += hg;
+    if (hg > ag) { H.w++; A.l++; H.pts += 3; }
+    else if (hg < ag) { A.w++; H.l++; A.pts += 3; }
     else { H.d++; A.d++; H.pts++; A.pts++; }
   }
   const out = {};
@@ -829,13 +870,23 @@ function buildBracket() {
   }
   function winnerLoser(n, wantWinner) {
     const sc = scores[n], M = byN[n];
-    if (!M || !sc || sc.s !== "FT" || sc.h === sc.a) return null; // KO draw needs sh-out info
-    const homeWon = sc.h > sc.a;
-    const pick = (homeWon === wantWinner) ? M.home : M.away;
-    return resolve(pick, n);
+    if (!M || !sc || sc.s !== "FT") return null;
+    const homeT = resolve(M.home, n), awayT = resolve(M.away, n);
+    const o = orientedGoals(sc, homeT && homeT.name, awayT && awayT.name);
+    if (o.hg === o.ag) return null; // draw -> decided on penalties; winner not in score
+    const homeWon = o.hg > o.ag;
+    return (homeWon === wantWinner) ? homeT : awayT;
   }
   function resolve(name, ctxN) {
     if (isReal(name)) return teamObj(name, true);
+    // Prefer ESPN's actual knockout matchup once it's known (overrides the
+    // standings projection — handles third-place slots and every later round).
+    const M = byN[ctxN];
+    if (M && koTeams[ctxN]) {
+      const side = name === M.home ? "h" : name === M.away ? "a" : null;
+      const canon = side && NORM_TO_CANON[koTeams[ctxN][side]];
+      if (canon) return teamObj(canon, true);
+    }
     let mm;
     if ((mm = /^Winner Group ([A-L])$/.exec(name))) {
       const r = table[mm[1]][0]; return r ? teamObj(r.team, complete[mm[1]]) : null;
@@ -960,10 +1011,14 @@ function renderMatch(m, v) {
   const badgeTxt = v === "green" ? "WATCH" : v === "yellow" ? "STRETCH" : "LATE";
   const grpTag = m.group ? `Group ${m.group}` : ROUND_LABELS[m.round];
 
-  const homeWon = sc && sc.s === "FT" && sc.h > sc.a;
-  const awayWon = sc && sc.s === "FT" && sc.a > sc.h;
+  // orient the score to the team shown on the left (home), via resolved names
+  const homeR = BRACKET ? BRACKET.resolve(m.home, m.n) : null;
+  const awayR = BRACKET ? BRACKET.resolve(m.away, m.n) : null;
+  const g = sc ? orientedGoals(sc, homeR ? homeR.name : m.home, awayR ? awayR.name : m.away) : null;
+  const homeWon = sc && sc.s === "FT" && g.hg > g.ag;
+  const awayWon = sc && sc.s === "FT" && g.ag > g.hg;
   const scoreCol = sc
-    ? `<span class="sc ${homeWon ? "win" : ""}">${sc.h}</span><span class="sc-dash">–</span><span class="sc ${awayWon ? "win" : ""}">${sc.a}</span>`
+    ? `<span class="sc ${homeWon ? "win" : ""}">${g.hg}</span><span class="sc-dash">–</span><span class="sc ${awayWon ? "win" : ""}">${g.ag}</span>`
     : `<span class="vs">v</span>`;
   const statusTag = sc
     ? `<span class="status ${sc.s === "LIVE" || sc.s === "HT" ? "live" : "ft"}">${sc.s === "LIVE" ? (sc.clock || "LIVE") : sc.s === "HT" ? "HT" : "FT"}</span>`
@@ -1058,11 +1113,12 @@ function bkRow(team, raw, goals, won) {
 function bkMatch(n, bracket) {
   const M = byN[n], sc = scores[n];
   const home = bracket.resolve(M.home, n), away = bracket.resolve(M.away, n);
-  const homeWon = sc && sc.s === "FT" && sc.h > sc.a;
-  const awayWon = sc && sc.s === "FT" && sc.a > sc.h;
+  const g = sc ? orientedGoals(sc, home ? home.name : M.home, away ? away.name : M.away) : null;
+  const homeWon = sc && sc.s === "FT" && g.hg > g.ag;
+  const awayWon = sc && sc.s === "FT" && g.ag > g.hg;
   return `<div class="bk-match">
-    ${bkRow(home, M.home, sc ? sc.h : null, homeWon)}
-    ${bkRow(away, M.away, sc ? sc.a : null, awayWon)}
+    ${bkRow(home, M.home, g ? g.hg : null, homeWon)}
+    ${bkRow(away, M.away, g ? g.ag : null, awayWon)}
     <div class="bk-cap">#${n} · ${M.date.slice(8)} ${MONTHS[Number(M.date.slice(5, 7)) - 1]}</div>
   </div>`;
 }

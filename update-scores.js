@@ -122,6 +122,14 @@ async function main() {
   }
 
   const scores = {};
+  // The 48 real teams (all appear in the group stage) — used to tell whether a
+  // knockout fixture's teams are actually determined yet vs. still a placeholder.
+  const realTeams = new Set();
+  for (const mt of matches) {
+    if (mt.round === "group") { realTeams.add(normName(mt.home)); realTeams.add(normName(mt.away)); }
+  }
+
+  const koTeams = {}; // n -> { h, a } actual (normalized) teams for knockout fixtures
   let mapped = 0, unmatched = 0;
   for (const ev of events.values()) {
     const comp = ev.competitions && ev.competitions[0];
@@ -129,13 +137,11 @@ async function main() {
     const st = comp.status && comp.status.type;
     if (!st) continue;
     const code = statusCode(st.name, st.state);
-    if (code === "PRE") continue; // no score worth recording yet
 
     const sides = {};
     for (const c of comp.competitors || []) sides[c.homeAway] = c;
     const home = sides.home, away = sides.away;
     if (!home || !away) continue;
-    if (home.score == null || away.score == null) continue;
 
     const key = ev.date.slice(0, 16); // already UTC ...THH:MM
     const candidates = byInstant.get(key);
@@ -145,7 +151,7 @@ async function main() {
     const ea = normName(away.team.displayName);
     let pick = candidates[0];
     if (candidates.length > 1) {
-      // disambiguate simultaneous kickoffs by best team-name overlap
+      // disambiguate simultaneous (group) kickoffs by best team-name overlap
       let best = -1;
       for (const cand of candidates) {
         const ch = normName(cand.home), ca = normName(cand.away);
@@ -154,16 +160,30 @@ async function main() {
       }
     }
 
+    // Once the group stage resolves them, record knockout fixtures' actual teams
+    // (even before kickoff) so the bracket shows real matchups instead of a
+    // standings-based projection — this also fixes third-place slot ambiguity.
+    if (pick.round !== "group" && realTeams.has(eh) && realTeams.has(ea)) {
+      koTeams[pick.n] = { h: eh, a: ea };
+    }
+
+    if (code === "PRE") continue;            // no score worth recording yet
+    if (home.score == null || away.score == null) continue;
+
+    // h/a are ESPN's home/away goals; eh/ea are the (normalized) ESPN team names
+    // so consumers can attribute goals to the right team regardless of whether
+    // our fixture lists the teams in the same home/away order as ESPN.
     scores[pick.n] = {
       h: Number(home.score),
       a: Number(away.score),
+      eh, ea,
       s: code,
       clock: st.shortDetail || st.detail || "",
     };
     mapped++;
   }
 
-  const payload = { updated: new Date().toISOString(), scores };
+  const payload = { updated: new Date().toISOString(), scores, koTeams };
   fs.writeFileSync(OUT, JSON.stringify(payload, null, 0) + "\n");
   console.log(`Wrote ${OUT}: ${mapped} results mapped, ${unmatched} unmatched.`);
 }
