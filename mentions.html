@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#0b1020" />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect x='2' y='2' width='60' height='60' rx='14' fill='%230b1020' stroke='%23ffd24a' stroke-width='2'/><circle cx='32' cy='32' r='21' fill='%23ffffff'/><path d='M32 25 L38.66 29.84 L36.11 37.66 L27.89 37.66 L25.34 29.84 Z' fill='%230b1020'/></svg>" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+<title>Player Mentions — World Cup 2026</title>
+<style>
+  :root {
+    --bg: #0d0e13; --bg-soft: #101218; --card: #14161d; --card-2: #1a1d26;
+    --line: #272b36; --line-soft: #1e212b; --text: #ecedf1; --muted: #888e9d;
+    --faint: #5b6072; --accent: #e6b24a; --green: #5aa97f; --red: #cf6070;
+    --radius: 10px; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Archivo", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased; line-height: 1.45; padding-bottom: 64px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 18px; }
+
+  .topnav { display: flex; align-items: center; gap: 12px; padding: 16px 0 0; }
+  .topnav a.back {
+    font-size: 12px; font-weight: 700; letter-spacing: .04em; color: var(--muted);
+    text-decoration: none; display: inline-flex; align-items: center; gap: 6px;
+  }
+  .topnav a.back:hover { color: var(--accent); }
+
+  header.hero { padding: 20px 0 0; }
+  .hero .eyebrow {
+    font-size: 11px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 12px;
+  }
+  .hero h1 { margin: 0; font-weight: 800; font-size: clamp(28px, 6vw, 42px); line-height: .98; letter-spacing: -.025em; }
+  .hero h1 em { font-style: normal; color: var(--muted); font-weight: 500; }
+  .hero .sub { color: var(--muted); margin-top: 14px; font-size: 14px; max-width: 56ch; }
+  .hero .rule { height: 1px; background: var(--line); margin: 22px 0 24px; }
+
+  .summary { display: flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--card); margin: 0 0 24px; }
+  .stat { flex: 1; padding: 15px 10px; text-align: center; border-right: 1px solid var(--line-soft); }
+  .stat:last-child { border-right: 0; }
+  .stat .n { font-size: 26px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+  .stat .n.accent { color: var(--accent); }
+  .stat .l { font-size: 10px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-top: 7px; }
+
+  .team-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); margin-bottom: 14px; overflow: hidden; }
+  .tc-head { display: flex; align-items: center; gap: 11px; padding: 14px 15px; border-bottom: 1px solid var(--line-soft); }
+  .tc-head .flag { font-size: 26px; line-height: 1; }
+  .tc-head .nm { font-size: 18px; font-weight: 800; letter-spacing: -.01em; }
+  .tc-head .meta { margin-left: auto; text-align: right; }
+  .tc-head .rnd { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--red); }
+  .tc-head .res { font-size: 11px; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
+
+  .mentions { padding: 6px 15px 4px; }
+  .mention { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+  .mention:last-child { border-bottom: 0; }
+  .mention .star { color: var(--accent); font-size: 14px; line-height: 1.5; flex: 0 0 auto; }
+  .mention .body { flex: 1 1 auto; min-width: 0; }
+  .mention .pname { font-size: 15px; font-weight: 700; }
+  .mention .pnote { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .mention .del {
+    flex: 0 0 auto; background: transparent; border: 1px solid var(--line); color: var(--faint);
+    border-radius: 7px; width: 28px; height: 28px; cursor: pointer; font-size: 14px; line-height: 1;
+  }
+  .mention .del:hover { border-color: var(--red); color: var(--red); }
+  .empty-m { padding: 12px 0; color: var(--faint); font-size: 13px; font-style: italic; }
+
+  .add-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 15px 15px; border-top: 1px solid var(--line-soft); background: var(--bg-soft); }
+  .add-row input {
+    background: var(--card); border: 1px solid var(--line); color: var(--text);
+    border-radius: 8px; padding: 9px 11px; font: inherit; font-size: 14px; outline: none;
+  }
+  .add-row input:focus { border-color: var(--muted); }
+  .add-row .pl { flex: 1 1 130px; }
+  .add-row .nt { flex: 2 1 200px; }
+  .add-row button {
+    background: var(--accent); border: 1px solid var(--accent); color: #1a1205;
+    border-radius: 8px; padding: 9px 16px; font: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; flex: 0 0 auto;
+  }
+  .add-row button:hover { filter: brightness(1.06); }
+
+  .empty { text-align: center; color: var(--muted); padding: 44px 16px; font-size: 14px; }
+  footer { text-align: center; color: var(--faint); font-size: 12px; margin-top: 34px; line-height: 1.7; }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topnav"><a class="back" href="/">← Watch planner</a></div>
+  <header class="hero">
+    <div class="eyebrow">My tournament notebook</div>
+    <h1>Player mentions<br /><em>knocked out in the playoffs</em></h1>
+    <p class="sub">As teams go out in the knockouts, jot down the players who impressed before they head home. Eliminations update automatically; your notes are saved on this device.</p>
+    <div class="rule"></div>
+  </header>
+
+  <div class="summary" id="summary"></div>
+  <div id="list"></div>
+
+  <footer>
+    Eliminations pulled from live results · mentions saved locally on this device.<br/>
+    <a href="/">← Back to the watch planner</a>
+  </footer>
+</div>
+
+<script>
+// Seed mentions — teams already noted. Merged in for any team not yet in storage,
+// so newly-seeded teams still appear for returning visitors without clobbering edits.
+const SEED = {
+  "South Africa": [
+    { player: "Mudau", note: "Right-back — composed and a constant outlet going forward." },
+    { player: "Mbokazi", note: "Teenage centre-back who looked unfazed on the big stage." }
+  ]
+};
+
+const STORE_KEY = "wc26_mentions";
+function loadStore() {
+  let store;
+  try { store = JSON.parse(localStorage.getItem(STORE_KEY)) || {}; }
+  catch (e) { store = {}; }
+  let changed = false;
+  for (const team in SEED) {
+    if (!(team in store)) { store[team] = SEED[team].map(m => ({ ...m })); changed = true; }
+  }
+  if (changed) saveStore(store);
+  return store;
+}
+function saveStore(store) { localStorage.setItem(STORE_KEY, JSON.stringify(store)); }
+
+let store = loadStore();
+let eliminated = [];
+
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function shortDate(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return `${d} ${MONTHS[m - 1]}`;
+}
+
+async function loadEliminated() {
+  try {
+    const res = await fetch("scores.json", { cache: "no-store" });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.eliminated)) eliminated = data.eliminated;
+    }
+  } catch (e) { /* offline — show whatever we have */ }
+}
+
+function mentionsFor(team) { return store[team] || []; }
+
+function addMention(team, player, note) {
+  player = (player || "").trim();
+  if (!player) return;
+  note = (note || "").trim();
+  store = { ...store, [team]: [...mentionsFor(team), { player, note }] };
+  saveStore(store);
+  render();
+}
+function removeMention(team, idx) {
+  const next = mentionsFor(team).filter((_, i) => i !== idx);
+  store = { ...store, [team]: next };
+  saveStore(store);
+  render();
+}
+
+function render() {
+  const list = document.getElementById("list");
+  const teams = eliminated.length;
+  let totalMentions = 0;
+  for (const e of eliminated) totalMentions += mentionsFor(e.team).length;
+
+  document.getElementById("summary").innerHTML = `
+    <div class="stat"><div class="n">${teams}</div><div class="l">Teams out</div></div>
+    <div class="stat"><div class="n accent">${totalMentions}</div><div class="l">Mentions</div></div>
+  `;
+
+  if (teams === 0) {
+    list.innerHTML = `<div class="empty">No teams have been knocked out of the playoffs yet.<br/>Check back once the Round of 32 gets going.</div>`;
+    return;
+  }
+
+  list.innerHTML = eliminated.map(e => {
+    const ms = mentionsFor(e.team);
+    const rows = ms.length
+      ? ms.map((m, i) => `
+        <div class="mention">
+          <span class="star">★</span>
+          <div class="body">
+            <div class="pname">${esc(m.player)}</div>
+            ${m.note ? `<div class="pnote">${esc(m.note)}</div>` : ""}
+          </div>
+          <button class="del" data-team="${esc(e.team)}" data-idx="${i}" title="Remove" aria-label="Remove">✕</button>
+        </div>`).join("")
+      : `<div class="empty-m">No mentions yet — add a player who impressed.</div>`;
+    return `
+      <div class="team-card">
+        <div class="tc-head">
+          <span class="flag">${e.flag || ""}</span>
+          <span class="nm">${esc(e.team)}</span>
+          <span class="meta">
+            <div class="rnd">${esc(e.roundLabel)}</div>
+            <div class="res">lost ${esc(e.score)} to ${e.lostToFlag || ""} ${esc(e.lostTo)} · ${shortDate(e.date)}</div>
+          </span>
+        </div>
+        <div class="mentions">${rows}</div>
+        <div class="add-row" data-team="${esc(e.team)}">
+          <input class="pl" type="text" placeholder="Player" aria-label="Player name" />
+          <input class="nt" type="text" placeholder="Why they impressed (optional)" aria-label="Note" />
+          <button type="button">Add</button>
+        </div>
+      </div>`;
+  }).join("");
+
+  list.querySelectorAll(".del").forEach(btn => {
+    btn.addEventListener("click", () => removeMention(btn.dataset.team, Number(btn.dataset.idx)));
+  });
+  list.querySelectorAll(".add-row").forEach(row => {
+    const team = row.dataset.team;
+    const pl = row.querySelector(".pl"), nt = row.querySelector(".nt");
+    const submit = () => { addMention(team, pl.value, nt.value); };
+    row.querySelector("button").addEventListener("click", submit);
+    [pl, nt].forEach(inp => inp.addEventListener("keydown", e => { if (e.key === "Enter") submit(); }));
+  });
+}
+
+render();
+loadEliminated().then(() => {
+  render();
+  // keep the eliminated list fresh while the page is open (cron refreshes scores.json)
+  setInterval(() => loadEliminated().then(render), 120000);
+});
+</script>
+</body>
+</html>

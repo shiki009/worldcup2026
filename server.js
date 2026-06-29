@@ -9,7 +9,9 @@ const PORT = process.env.PORT || 3000;
 
 // Files served directly; anything else falls back to the app shell (index.html).
 const STATIC = {
-  "/scores.json": { file: "scores.json", type: "application/json; charset=utf-8", maxAge: 60 }
+  "/scores.json": { file: "scores.json", type: "application/json; charset=utf-8", maxAge: 60 },
+  "/mentions": { file: "mentions.html", type: "text/html; charset=utf-8", maxAge: 300 },
+  "/mentions.html": { file: "mentions.html", type: "text/html; charset=utf-8", maxAge: 300 }
 };
 const SHELL = { file: "index.html", type: "text/html; charset=utf-8", maxAge: 300 };
 

@@ -23,12 +23,55 @@ const ESPN = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/sc
 const RANGE_START = "2026-06-10";
 const RANGE_END = "2026-07-20";
 
-// ---------- Load fixtures from index.html (single source of truth) ----------
+// ---------- Load fixtures + flags from index.html (single source of truth) ----------
 function loadMatches() {
   const html = fs.readFileSync(INDEX, "utf8");
   const m = html.match(/const MATCHES\s*=\s*(\[[\s\S]*?\]);/);
   if (!m) throw new Error("Could not locate MATCHES array in index.html");
   return JSON.parse(m[1]);
+}
+function loadFlags() {
+  const html = fs.readFileSync(INDEX, "utf8");
+  const m = html.match(/const FLAGS\s*=\s*(\{[\s\S]*?\});/);
+  if (!m) throw new Error("Could not locate FLAGS map in index.html");
+  return JSON.parse(m[1].replace(/,\s*}/g, "}"));
+}
+
+const ROUND_LABELS = {
+  r32: "Round of 32", r16: "Round of 16", qf: "Quarter-final",
+  sf: "Semi-final", third: "3rd-place match", final: "Final"
+};
+
+// From completed knockout games, list teams knocked out (loser of each FT match),
+// with display names/flags resolved, most recent first. Penalty-shootout draws
+// are skipped (the loser isn't inferable from the score alone).
+function computeEliminated(matches, scores, koTeams, flags) {
+  const byN = {};
+  for (const m of matches) byN[m.n] = m;
+  const canon = {}; // normalized -> { name, flag }
+  for (const name of Object.keys(flags)) canon[normName(name)] = { name, flag: flags[name] };
+
+  const out = [];
+  for (const n of Object.keys(koTeams)) {
+    const M = byN[n], sc = scores[n], kt = koTeams[n];
+    if (!M || M.round === "group" || !sc || sc.s !== "FT") continue;
+    // goals for koTeams home/away, oriented by team name
+    const hg = kt.h === sc.eh ? sc.h : sc.a;
+    const ag = kt.a === sc.ea ? sc.a : sc.h;
+    if (hg === ag) continue; // shootout — winner not in score
+    const loserNorm = hg > ag ? kt.a : kt.h;
+    const winnerNorm = hg > ag ? kt.h : kt.a;
+    const L = canon[loserNorm], W = canon[winnerNorm];
+    if (!L || !W) continue;
+    const lg = Math.min(hg, ag), wg = Math.max(hg, ag);
+    out.push({
+      team: L.name, flag: L.flag, round: M.round, roundLabel: ROUND_LABELS[M.round] || M.round,
+      lostTo: W.name, lostToFlag: W.flag, score: `${lg}–${wg}`,
+      matchN: M.n, date: M.date, city: M.city
+    });
+  }
+  out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.matchN - a.matchN));
+  return out;
 }
 
 // ET (UTC-4 during tournament) -> UTC instant, normalized to YYYY-MM-DDTHH:MM.
@@ -183,7 +226,9 @@ async function main() {
     mapped++;
   }
 
-  const payload = { updated: new Date().toISOString(), scores, koTeams };
+  const flags = loadFlags();
+  const eliminated = computeEliminated(matches, scores, koTeams, flags);
+  const payload = { updated: new Date().toISOString(), scores, koTeams, eliminated };
   fs.writeFileSync(OUT, JSON.stringify(payload, null, 0) + "\n");
   console.log(`Wrote ${OUT}: ${mapped} results mapped, ${unmatched} unmatched.`);
 }

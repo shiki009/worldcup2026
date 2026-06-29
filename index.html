@@ -54,6 +54,13 @@
   .hero h1 em { font-style: normal; color: var(--muted); font-weight: 500; }
   .hero .sub { color: var(--muted); margin-top: 14px; font-size: 14px; max-width: 56ch; }
   .hero .rule { height: 1px; background: var(--line); margin-top: 22px; }
+  .hero-nav {
+    display: inline-flex; align-items: center; gap: 6px; margin-top: 16px;
+    font-size: 13px; font-weight: 700; letter-spacing: .01em; color: var(--accent);
+    text-decoration: none; border: 1px solid var(--line); background: var(--card);
+    padding: 9px 14px; border-radius: 8px; transition: border-color .12s, background .12s;
+  }
+  .hero-nav:hover { border-color: var(--accent); background: var(--card-2); }
 
   /* Controls */
   .controls {
@@ -313,6 +320,7 @@
     <div class="eyebrow">Tallinn time · your sleep window</div>
     <h1>World Cup 2026<br /><em>watch planner</em></h1>
     <p class="sub">All 104 matches converted to Tallinn time and graded against the hours you'll actually be awake. Star the games you want; skip the rest.</p>
+    <a class="hero-nav" href="/mentions">★ Player mentions — who impressed before going out →</a>
     <div class="rule"></div>
   </div>
 </header>
