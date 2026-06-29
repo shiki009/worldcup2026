@@ -58,18 +58,61 @@
   .tc-head .res { font-size: 11px; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
 
   .mentions { padding: 6px 15px 4px; }
-  .mention { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+  .mention { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line-soft); }
   .mention:last-child { border-bottom: 0; }
-  .mention .star { color: var(--accent); font-size: 14px; line-height: 1.5; flex: 0 0 auto; }
+  .mention.clickable { cursor: pointer; }
+  .mention.clickable:hover .pname { color: var(--accent); }
   .mention .body { flex: 1 1 auto; min-width: 0; }
-  .mention .pname { font-size: 15px; font-weight: 700; }
-  .mention .pnote { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .mention .pname { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; transition: color .12s; }
+  .mention .pname .num { font-family: var(--mono); font-size: 11px; color: var(--faint); font-weight: 600; }
+  .mention .psub { font-size: 12px; color: var(--faint); margin-top: 1px; }
+  .mention .pnote { font-size: 13px; color: var(--muted); margin-top: 3px; }
+  .mention .chev { color: var(--faint); font-size: 16px; flex: 0 0 auto; }
   .mention .del {
     flex: 0 0 auto; background: transparent; border: 1px solid var(--line); color: var(--faint);
     border-radius: 7px; width: 28px; height: 28px; cursor: pointer; font-size: 14px; line-height: 1;
   }
   .mention .del:hover { border-color: var(--red); color: var(--red); }
   .empty-m { padding: 12px 0; color: var(--faint); font-size: 13px; font-style: italic; }
+
+  /* Avatars */
+  .avatar {
+    flex: 0 0 auto; width: 44px; height: 44px; border-radius: 50%; overflow: hidden;
+    display: flex; align-items: center; justify-content: center; background: var(--card-2);
+    border: 1px solid var(--line); font-weight: 800; font-size: 15px; color: var(--accent);
+    background-size: cover; background-position: center top;
+  }
+  .avatar.lg { width: 92px; height: 92px; font-size: 30px; }
+
+  /* Player detail modal */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(6,7,11,.74); z-index: 60;
+    display: none; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto;
+  }
+  .modal-bg.open { display: flex; }
+  .modal {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    width: 100%; max-width: 420px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  }
+  .modal-head { display: flex; align-items: center; gap: 14px; padding: 20px; border-bottom: 1px solid var(--line-soft); }
+  .modal-head .who { flex: 1 1 auto; min-width: 0; }
+  .modal-head .who .nm { font-size: 20px; font-weight: 800; letter-spacing: -.01em; }
+  .modal-head .who .tm { font-size: 13px; color: var(--muted); margin-top: 3px; display: flex; align-items: center; gap: 6px; }
+  .modal-close {
+    position: absolute; top: 12px; right: 14px; background: transparent; border: 0; color: var(--muted);
+    font-size: 24px; cursor: pointer; line-height: 1;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-body { padding: 6px 20px 20px; }
+  .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft); border-radius: 9px; overflow: hidden; margin-top: 14px; }
+  .fact { background: var(--card); padding: 11px 13px; }
+  .fact .k { font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+  .fact .v { font-size: 14px; font-weight: 700; margin-top: 3px; }
+  .modal-note { margin-top: 14px; font-size: 14px; color: var(--text); line-height: 1.55; }
+  .modal-note .lab { font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); display: block; margin-bottom: 5px; }
+  .modal-note.empty { color: var(--faint); font-style: italic; }
+  .modal-link { display: inline-block; margin-top: 16px; font-size: 12px; font-weight: 700; color: var(--accent); text-decoration: none; }
+  .modal-miss { margin-top: 14px; font-size: 12px; color: var(--faint); font-style: italic; }
 
   .add-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 15px 15px; border-top: 1px solid var(--line-soft); background: var(--bg-soft); }
   .add-row input {
@@ -105,9 +148,16 @@
   <div id="list"></div>
 
   <footer>
-    Eliminations pulled from live results · mentions saved locally on this device.<br/>
+    Eliminations pulled from live results · player profiles from ESPN · mentions saved on this device.<br/>
     <a href="/">← Back to the watch planner</a>
   </footer>
+</div>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal" id="modal" role="dialog" aria-modal="true" style="position:relative">
+    <button class="modal-close" id="modalClose" aria-label="Close">×</button>
+    <div id="modalContent"></div>
+  </div>
 </div>
 
 <script>
@@ -154,6 +204,52 @@ async function loadEliminated() {
   } catch (e) { /* offline — show whatever we have */ }
 }
 
+// ---------- Player profiles (ESPN team rosters) ----------
+const norm = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const rosterByTeam = {};   // teamId -> [athlete, ...]
+function teamIdFor(team) { const e = eliminated.find(x => x.team === team); return e && e.teamId; }
+
+async function fetchRoster(teamId) {
+  if (!teamId || rosterByTeam[teamId]) return;
+  rosterByTeam[teamId] = []; // mark in-flight to avoid double fetch
+  try {
+    const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/teams/${teamId}/roster`);
+    if (!res.ok) return;
+    const d = await res.json();
+    rosterByTeam[teamId] = (d.athletes || []).map(a => ({
+      id: a.id, fullName: a.fullName || a.displayName, displayName: a.displayName,
+      lastName: a.lastName || "", pos: (a.position || {}).displayName || "",
+      jersey: a.jersey || "", age: a.age, dob: a.dateOfBirth,
+      height: a.displayHeight || "", weight: a.displayWeight || "",
+      birthPlace: a.birthPlace ? [a.birthPlace.city, a.birthPlace.country].filter(Boolean).join(", ") : "",
+      headshot: (a.headshot || {}).href || "", link: (a.links && a.links[0] || {}).href || ""
+    }));
+  } catch (e) { /* roster unavailable — fall back to initials + the user's note */ }
+}
+
+// Match a typed player name to a roster athlete (last name first, then loose contains).
+function findAthlete(team, playerName) {
+  const list = rosterByTeam[teamIdFor(team)];
+  if (!list || !list.length) return null;
+  const q = norm(playerName);
+  if (!q) return null;
+  let hit = list.find(a => norm(a.lastName) === q || norm(a.displayName) === q);
+  if (!hit) hit = list.find(a => norm(a.displayName).includes(q) || (norm(a.lastName) && q.includes(norm(a.lastName))));
+  return hit || null;
+}
+
+function initials(name) {
+  const parts = String(name).trim().split(/\s+/);
+  return ((parts[0] || "")[0] || "") + (parts.length > 1 ? (parts[parts.length - 1][0] || "") : "");
+}
+function avatar(athlete, fallbackName, lg) {
+  const cls = `avatar${lg ? " lg" : ""}`;
+  if (athlete && athlete.headshot) {
+    return `<div class="${cls}" style="background-image:url('${esc(athlete.headshot)}')"></div>`;
+  }
+  return `<div class="${cls}">${esc(initials((athlete && athlete.fullName) || fallbackName).toUpperCase())}</div>`;
+}
+
 function mentionsFor(team) { return store[team] || []; }
 
 function addMention(team, player, note) {
@@ -190,15 +286,20 @@ function render() {
   list.innerHTML = eliminated.map(e => {
     const ms = mentionsFor(e.team);
     const rows = ms.length
-      ? ms.map((m, i) => `
-        <div class="mention">
-          <span class="star">★</span>
+      ? ms.map((m, i) => {
+        const a = findAthlete(e.team, m.player);
+        const sub = a ? [a.pos, a.jersey ? `#${a.jersey}` : "", a.age ? `${a.age} yrs` : ""].filter(Boolean).join(" · ") : "";
+        return `
+        <div class="mention clickable" data-team="${esc(e.team)}" data-idx="${i}">
+          ${avatar(a, m.player)}
           <div class="body">
-            <div class="pname">${esc(m.player)}</div>
+            <div class="pname">${esc(a ? a.fullName : m.player)}${a && a.jersey ? `<span class="num">#${esc(a.jersey)}</span>` : ""}</div>
+            ${sub ? `<div class="psub">${esc(sub)}</div>` : ""}
             ${m.note ? `<div class="pnote">${esc(m.note)}</div>` : ""}
           </div>
+          <span class="chev">›</span>
           <button class="del" data-team="${esc(e.team)}" data-idx="${i}" title="Remove" aria-label="Remove">✕</button>
-        </div>`).join("")
+        </div>`; }).join("")
       : `<div class="empty-m">No mentions yet — add a player who impressed.</div>`;
     return `
       <div class="team-card">
@@ -220,7 +321,13 @@ function render() {
   }).join("");
 
   list.querySelectorAll(".del").forEach(btn => {
-    btn.addEventListener("click", () => removeMention(btn.dataset.team, Number(btn.dataset.idx)));
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      removeMention(btn.dataset.team, Number(btn.dataset.idx));
+    });
+  });
+  list.querySelectorAll(".mention.clickable").forEach(row => {
+    row.addEventListener("click", () => openPlayer(row.dataset.team, Number(row.dataset.idx)));
   });
   list.querySelectorAll(".add-row").forEach(row => {
     const team = row.dataset.team;
@@ -231,11 +338,58 @@ function render() {
   });
 }
 
+// ---------- Player detail modal ----------
+function fact(k, v) { return v ? `<div class="fact"><div class="k">${k}</div><div class="v">${esc(v)}</div></div>` : ""; }
+
+function openPlayer(team, idx) {
+  const m = mentionsFor(team)[idx];
+  if (!m) return;
+  const e = eliminated.find(x => x.team === team);
+  const a = findAthlete(team, m.player);
+  const facts = a ? [
+    fact("Position", a.pos), fact("Shirt", a.jersey ? `#${a.jersey}` : ""),
+    fact("Age", a.age ? `${a.age}` : ""), fact("Height", a.height),
+    fact("Born", a.birthPlace)
+  ].filter(Boolean).join("") : "";
+
+  document.getElementById("modalContent").innerHTML = `
+    <div class="modal-head">
+      ${avatar(a, m.player, true)}
+      <div class="who">
+        <div class="nm">${esc(a ? a.fullName : m.player)}</div>
+        <div class="tm">${e ? `${e.flag || ""} ${esc(e.team)} · out in the ${esc(e.roundLabel)}` : ""}</div>
+      </div>
+    </div>
+    <div class="modal-body">
+      ${facts ? `<div class="facts">${facts}</div>` : ""}
+      ${m.note
+        ? `<div class="modal-note"><span class="lab">Why they impressed</span>${esc(m.note)}</div>`
+        : `<div class="modal-note empty">No note yet — they just caught your eye.</div>`}
+      ${a && a.link ? `<a class="modal-link" href="${esc(a.link)}" target="_blank" rel="noopener">Full profile on ESPN →</a>` : ""}
+      ${!a ? `<div class="modal-miss">No matching squad profile found — showing your note only.</div>` : ""}
+    </div>`;
+  document.getElementById("modalBg").classList.add("open");
+}
+function closeModal() { document.getElementById("modalBg").classList.remove("open"); }
+document.getElementById("modalClose").addEventListener("click", closeModal);
+document.getElementById("modalBg").addEventListener("click", (e) => {
+  if (e.target.id === "modalBg") closeModal();
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+
+// Fetch rosters for teams that have mentions, then re-render to enrich them.
+async function enrich() {
+  const ids = [...new Set(eliminated.filter(e => mentionsFor(e.team).length).map(e => e.teamId).filter(Boolean))];
+  await Promise.all(ids.map(fetchRoster));
+  render();
+}
+
 render();
 loadEliminated().then(() => {
   render();
+  enrich();
   // keep the eliminated list fresh while the page is open (cron refreshes scores.json)
-  setInterval(() => loadEliminated().then(render), 120000);
+  setInterval(() => loadEliminated().then(() => { render(); enrich(); }), 120000);
 });
 </script>
 </body>

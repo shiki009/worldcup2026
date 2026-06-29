@@ -284,12 +284,46 @@
   .standings-note .k.a { background: var(--amber); }
 
   /* Bracket */
+  .bk-toolbar { display: flex; gap: 6px; padding: 0 16px 8px; }
+  .bk-view {
+    background: var(--card); border: 1px solid var(--line); color: var(--muted);
+    border-radius: 7px; padding: 6px 13px; font: inherit; font-size: 12px; font-weight: 700;
+    cursor: pointer; transition: all .12s;
+  }
+  .bk-view:hover { color: var(--text); border-color: var(--muted); }
+  .bk-view.on { background: var(--card-2); color: var(--text); border-color: var(--accent); }
+
   .bracket-scroll { overflow-x: auto; padding: 4px 16px 8px; -webkit-overflow-scrolling: touch; }
   .bracket { display: flex; gap: 14px; min-width: min-content; align-items: stretch; }
-  .bk-round { display: flex; flex-direction: column; justify-content: space-around; gap: 8px; min-width: 172px; }
+  .bk-round { display: flex; flex-direction: column; min-width: 172px; }
+  .bk-col { display: flex; flex-direction: column; justify-content: space-around; gap: 8px; flex: 1 1 auto; }
+  .bk-slot { display: flex; flex-direction: column; justify-content: center; }
   .bk-round .bk-h {
     font-size: 9px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
-    color: var(--muted); text-align: center; padding-bottom: 2px;
+    color: var(--muted); text-align: center; padding-bottom: 6px;
+  }
+  .bk-round .bk-h.sm { padding-top: 10px; }
+  .bk-third { margin-top: 6px; }
+
+  /* Visual bracket: even cells + connector lines */
+  .bracket.visual { gap: 32px; min-height: 1180px; }
+  .bracket.visual .bk-round { min-width: 188px; }
+  .bracket.visual .bk-col { justify-content: stretch; gap: 0; }
+  .bracket.visual .bk-slot { flex: 1 1 0; position: relative; }
+  .bracket.visual .bk-slot .bk-match { margin: 5px 0; }
+  /* horizontal stub out the right of every feeder match */
+  .bracket.visual .bk-round:not(.bk-final) .bk-col .bk-slot::after {
+    content: ""; position: absolute; left: 100%; top: 50%;
+    width: 16px; height: 2px; background: var(--line);
+  }
+  /* pair-joining vertical + horizontal into the next round (drawn by the feeders) */
+  .bracket.visual .bk-round:not(.bk-final) .bk-col .bk-slot:nth-child(odd)::before {
+    content: ""; position: absolute; left: 100%; margin-left: 16px; top: 50%;
+    width: 16px; height: 50%; border-left: 2px solid var(--line); border-bottom: 2px solid var(--line);
+  }
+  .bracket.visual .bk-round:not(.bk-final) .bk-col .bk-slot:nth-child(even)::before {
+    content: ""; position: absolute; left: 100%; margin-left: 16px; bottom: 50%;
+    width: 16px; height: 50%; border-left: 2px solid var(--line);
   }
   .bk-match {
     border: 1px solid var(--line-soft); border-radius: 7px; background: var(--bg-soft);
@@ -398,6 +432,10 @@
 
   <details class="panel" id="bracketPanel">
     <summary>Projected knockout bracket <span class="panel-tag" id="bracketTag"></span></summary>
+    <div class="bk-toolbar" id="bkToolbar">
+      <button type="button" class="bk-view on" data-view="compact">Compact</button>
+      <button type="button" class="bk-view" data-view="visual">Bracket</button>
+    </div>
     <div class="bracket-scroll"><div id="bracket" class="bracket"></div></div>
     <div class="bracket-note" id="bracketNote"></div>
   </details>
@@ -1154,11 +1192,14 @@ function bkMatch(n, bracket) {
 function renderBracket(bracket) {
   const host = document.getElementById("bracket");
   host.innerHTML = BK_COLUMNS.map(col => {
-    const matches = col.order.map(n => bkMatch(n, bracket)).join("");
-    const extra = col.key === "final"
-      ? `<div class="bk-third"><div class="bk-h">3rd place</div>${bkMatch(103, bracket)}</div>` : "";
-    return `<div class="bk-round ${col.key === "final" ? "bk-final" : ""}">
-      <div class="bk-h">${col.label}</div>${matches}${extra}</div>`;
+    const isFinal = col.key === "final";
+    const slots = col.order.map(n => `<div class="bk-slot">${bkMatch(n, bracket)}</div>`).join("");
+    const third = isFinal
+      ? `<div class="bk-third"><div class="bk-h sm">3rd place</div><div class="bk-slot">${bkMatch(103, bracket)}</div></div>`
+      : "";
+    return `<div class="bk-round ${isFinal ? "bk-final" : ""}">
+      <div class="bk-h">${col.label}</div>
+      <div class="bk-col">${slots}</div>${third}</div>`;
   }).join("");
 
   const q = [...bracket.qualified].sort();
@@ -1170,6 +1211,14 @@ function renderBracket(bracket) {
       ? `Best third-placed groups: ${q.join(", ")}.`
       : `Best third-placed groups so far: ${q.join(", ")} (provisional).`);
 }
+
+// ---------- Bracket view toggle (compact list vs visual tree) ----------
+document.getElementById("bkToolbar").addEventListener("click", (e) => {
+  const btn = e.target.closest(".bk-view");
+  if (!btn) return;
+  document.querySelectorAll("#bkToolbar .bk-view").forEach(b => b.classList.toggle("on", b === btn));
+  document.getElementById("bracket").classList.toggle("visual", btn.dataset.view === "visual");
+});
 
 // ---------- Wire up controls ----------
 document.getElementById("search").addEventListener("input", (e) => {

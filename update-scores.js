@@ -45,7 +45,7 @@ const ROUND_LABELS = {
 // From completed knockout games, list teams knocked out (loser of each FT match),
 // with display names/flags resolved, most recent first. Penalty-shootout draws
 // are skipped (the loser isn't inferable from the score alone).
-function computeEliminated(matches, scores, koTeams, flags) {
+function computeEliminated(matches, scores, koTeams, flags, teamIds) {
   const byN = {};
   for (const m of matches) byN[m.n] = m;
   const canon = {}; // normalized -> { name, flag }
@@ -65,7 +65,8 @@ function computeEliminated(matches, scores, koTeams, flags) {
     if (!L || !W) continue;
     const lg = Math.min(hg, ag), wg = Math.max(hg, ag);
     out.push({
-      team: L.name, flag: L.flag, round: M.round, roundLabel: ROUND_LABELS[M.round] || M.round,
+      team: L.name, flag: L.flag, teamId: (teamIds && teamIds[loserNorm]) || null,
+      round: M.round, roundLabel: ROUND_LABELS[M.round] || M.round,
       lostTo: W.name, lostToFlag: W.flag, score: `${lg}–${wg}`,
       matchN: M.n, date: M.date, city: M.city
     });
@@ -173,6 +174,7 @@ async function main() {
   }
 
   const koTeams = {}; // n -> { h, a } actual (normalized) teams for knockout fixtures
+  const teamIds = {}; // normalized team name -> ESPN team id (for roster lookups)
   let mapped = 0, unmatched = 0;
   for (const ev of events.values()) {
     const comp = ev.competitions && ev.competitions[0];
@@ -192,6 +194,8 @@ async function main() {
 
     const eh = normName(home.team.displayName);
     const ea = normName(away.team.displayName);
+    if (home.team.id) teamIds[eh] = home.team.id;
+    if (away.team.id) teamIds[ea] = away.team.id;
     let pick = candidates[0];
     if (candidates.length > 1) {
       // disambiguate simultaneous (group) kickoffs by best team-name overlap
@@ -227,7 +231,7 @@ async function main() {
   }
 
   const flags = loadFlags();
-  const eliminated = computeEliminated(matches, scores, koTeams, flags);
+  const eliminated = computeEliminated(matches, scores, koTeams, flags, teamIds);
   const payload = { updated: new Date().toISOString(), scores, koTeams, eliminated };
   fs.writeFileSync(OUT, JSON.stringify(payload, null, 0) + "\n");
   console.log(`Wrote ${OUT}: ${mapped} results mapped, ${unmatched} unmatched.`);
