@@ -95,6 +95,11 @@
   .chip:hover { border-color: var(--muted); color: var(--text); }
   .chip.on { background: var(--card-2); color: var(--text); }
   #pickChips .chip.on { border-color: var(--accent); }
+  .chip.toggle { gap: 6px; }
+  .chip.toggle .check { opacity: 0; font-size: 11px; color: var(--accent); transition: opacity .12s; }
+  .chip.toggle.on { border-color: var(--accent); color: var(--text); }
+  .chip.toggle.on .check { opacity: 1; }
+  .chip.toggle .cnt { color: var(--faint); font-variant-numeric: tabular-nums; }
 
   /* Settings */
   details.settings { margin-top: 14px; }
@@ -208,6 +213,7 @@
   .act.skip.on { background: var(--card-2); border-color: var(--muted); color: var(--text); }
 
   .empty { text-align: center; color: var(--muted); padding: 44px 16px; font-size: 14px; }
+  .empty a { color: var(--accent); }
   footer { text-align: center; color: var(--faint); font-size: 12px; margin-top: 34px; line-height: 1.7; }
   footer a { color: var(--accent); }
 
@@ -339,6 +345,9 @@
         <option value="third">3rd place</option>
         <option value="final">Final</option>
       </select>
+      <span class="chip toggle on" id="hideFinished" role="button" tabindex="0" title="Hide games that have already finished">
+        <span class="check">✓</span>Hide finished<span class="cnt" id="hideFinishedCnt"></span>
+      </span>
     </div>
     <div class="row">
       <div class="chips" id="verdictChips">
@@ -602,8 +611,10 @@ const state = {
   search: "",
   round: "all",
   verdicts: new Set(["green", "yellow", "red"]),
-  pick: null // "want" | "skip" | "undecided" | null
+  pick: null, // "want" | "skip" | "undecided" | null
+  hideFinished: true // default to focusing on upcoming/live games
 };
+function isFinished(m) { const sc = scores[m.n]; return !!(sc && sc.s === "FT"); }
 
 // Precompute Tallinn time + verdict-independent fields once
 const ENRICHED = MATCHES.map(m => {
@@ -914,6 +925,7 @@ function buildBracket() {
 }
 
 function matchPassesFilters(m, verdict) {
+  if (state.hideFinished && isFinished(m)) return false;
   if (state.round !== "all" && m.round !== state.round) return false;
   if (!state.verdicts.has(verdict)) return false;
   const pk = picks[m.n] || "undecided";
@@ -937,12 +949,15 @@ function render() {
   list.innerHTML = "";
 
   // summary across ALL matches (not filtered) for the current window
-  let g = 0, y = 0, r = 0, want = 0;
+  let g = 0, y = 0, r = 0, want = 0, finished = 0;
   for (const m of ENRICHED) {
     const v = verdictFor(m.t.minOfDay);
     if (v === "green") g++; else if (v === "yellow") y++; else r++;
     if (picks[m.n] === "want") want++;
+    if (isFinished(m)) finished++;
   }
+  const cntEl = document.getElementById("hideFinishedCnt");
+  if (cntEl) cntEl.textContent = finished ? ` ${finished}` : "";
   document.getElementById("summary").innerHTML = `
     <div class="stat green"><div class="n">${g}</div><div class="l">Watchable</div></div>
     <div class="stat yellow"><div class="n">${y}</div><div class="l">Stretch</div></div>
@@ -962,7 +977,12 @@ function render() {
   }
 
   if (shown === 0) {
-    list.innerHTML = `<div class="empty">No matches match these filters.<br/>Try widening your watch window or clearing filters.</div>`;
+    const hint = state.hideFinished && finished
+      ? `All matching games have finished. <a href="#" id="showFinishedLink">Show finished games</a>.`
+      : `Try widening your watch window or clearing filters.`;
+    list.innerHTML = `<div class="empty">No upcoming matches match these filters.<br/>${hint}</div>`;
+    const link = document.getElementById("showFinishedLink");
+    if (link) link.addEventListener("click", (e) => { e.preventDefault(); toggleHideFinished(); });
     return;
   }
 
@@ -1159,6 +1179,16 @@ document.getElementById("search").addEventListener("input", (e) => {
 document.getElementById("roundFilter").addEventListener("change", (e) => {
   state.round = e.target.value;
   render();
+});
+const hideFinishedChip = document.getElementById("hideFinished");
+function toggleHideFinished() {
+  state.hideFinished = !state.hideFinished;
+  hideFinishedChip.classList.toggle("on", state.hideFinished);
+  render();
+}
+hideFinishedChip.addEventListener("click", toggleHideFinished);
+hideFinishedChip.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleHideFinished(); }
 });
 document.getElementById("verdictChips").addEventListener("click", (e) => {
   const chip = e.target.closest(".chip");
