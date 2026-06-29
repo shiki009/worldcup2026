@@ -194,6 +194,30 @@ function shortDate(iso) {
   return `${d} ${MONTHS[m - 1]}`;
 }
 
+// Country flags + normalization so ESPN team names map to our canonical names.
+const FLAGS = {
+  "Mexico":"🇲🇽","South Africa":"🇿🇦","South Korea":"🇰🇷","Czechia":"🇨🇿","Canada":"🇨🇦",
+  "Bosnia and Herzegovina":"🇧🇦","United States":"🇺🇸","Paraguay":"🇵🇾","Qatar":"🇶🇦","Switzerland":"🇨🇭",
+  "Brazil":"🇧🇷","Morocco":"🇲🇦","Haiti":"🇭🇹","Scotland":"🏴󠁧󠁢󠁳󠁣󠁴󠁿","Australia":"🇦🇺","Türkiye":"🇹🇷",
+  "Germany":"🇩🇪","Curaçao":"🇨🇼","Netherlands":"🇳🇱","Japan":"🇯🇵","Ivory Coast":"🇨🇮","Ecuador":"🇪🇨",
+  "Sweden":"🇸🇪","Tunisia":"🇹🇳","Spain":"🇪🇸","Cape Verde":"🇨🇻","Belgium":"🇧🇪","Egypt":"🇪🇬",
+  "Saudi Arabia":"🇸🇦","Uruguay":"🇺🇾","Iran":"🇮🇷","New Zealand":"🇳🇿","France":"🇫🇷","Senegal":"🇸🇳",
+  "Iraq":"🇮🇶","Norway":"🇳🇴","Argentina":"🇦🇷","Algeria":"🇩🇿","Austria":"🇦🇹","Jordan":"🇯🇴",
+  "Portugal":"🇵🇹","DR Congo":"🇨🇩","England":"🏴󠁧󠁢󠁥󠁮󠁧󠁿","Croatia":"🇭🇷","Ghana":"🇬🇭","Panama":"🇵🇦",
+  "Uzbekistan":"🇺🇿","Colombia":"🇨🇴"
+};
+const ALIASES = {
+  bosniaherzegovina: "bosniaandherzegovina", congodr: "drcongo", turkey: "turkiye",
+  cotedivoire: "ivorycoast", korearepublic: "southkorea", usa: "unitedstates", czechrepublic: "czechia"
+};
+const norm = (s) => {
+  const n = (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  return ALIASES[n] || n;
+};
+const CANON_BY_NORM = (() => { const m = {}; for (const name of Object.keys(FLAGS)) m[norm(name)] = name; return m; })();
+const canonName = (espnName) => CANON_BY_NORM[norm(espnName)] || espnName;
+const flagFor = (name) => FLAGS[name] || FLAGS[canonName(name)] || "";
+
 async function loadEliminated() {
   try {
     const res = await fetch("scores.json", { cache: "no-store" });
@@ -204,8 +228,54 @@ async function loadEliminated() {
   } catch (e) { /* offline — show whatever we have */ }
 }
 
+// Compute eliminations LIVE from ESPN so the list updates without a redeploy
+// (mirrors how the bracket self-updates). Uses ESPN's winner flag, so penalty
+// shootouts are handled correctly.
+const ESPN_SB = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard";
+function koDates() {
+  const out = [];
+  const start = Date.UTC(2026, 5, 28);                   // 28 Jun (R32 start)
+  const end = Math.min(Date.now() + 86400000, Date.UTC(2026, 6, 20));
+  for (let t = start; t <= end; t += 86400000) {
+    const x = new Date(t);
+    out.push(`${x.getUTCFullYear()}${String(x.getUTCMonth() + 1).padStart(2, "0")}${String(x.getUTCDate()).padStart(2, "0")}`);
+  }
+  return out;
+}
+async function liveEliminated() {
+  const out = [];
+  for (const ds of koDates()) {
+    let data;
+    try {
+      const res = await fetch(`${ESPN_SB}?dates=${ds}`, { cache: "no-store" });
+      if (!res.ok) continue;
+      data = await res.json();
+    } catch (e) { continue; }
+    const roundLabel = ((((data.leagues || [])[0] || {}).season || {}).type || {}).name || "Knockout";
+    for (const ev of data.events || []) {
+      const comp = (ev.competitions || [])[0];
+      const st = comp && comp.status && comp.status.type;
+      if (!comp || !st) continue;
+      if (st.name !== "STATUS_FULL_TIME" && st.state !== "post") continue;
+      const winnerC = comp.competitors.find(c => c.winner === true);
+      const loserC = comp.competitors.find(c => c.winner === false);
+      if (!winnerC || !loserC) continue;
+      // ET date (UTC-4) so the day matches the watch planner
+      const etDate = new Date(new Date(ev.date).getTime() - 4 * 3600000).toISOString().slice(0, 10);
+      const team = canonName(loserC.team.displayName);
+      const lostTo = canonName(winnerC.team.displayName);
+      out.push({
+        team, flag: flagFor(team), teamId: loserC.team.id,
+        roundLabel, lostTo, lostToFlag: flagFor(lostTo),
+        score: `${loserC.score}–${winnerC.score}`, date: etDate
+      });
+    }
+  }
+  out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.team.localeCompare(b.team)));
+  return out;
+}
+
 // ---------- Player profiles (ESPN team rosters) ----------
-const norm = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 const rosterByTeam = {};   // teamId -> [athlete, ...]
 function teamIdFor(team) { const e = eliminated.find(x => x.team === team); return e && e.teamId; }
 
@@ -384,13 +454,19 @@ async function enrich() {
   render();
 }
 
-render();
-loadEliminated().then(() => {
+// Refresh the eliminated list live from ESPN; prefer it over the cron snapshot.
+async function refresh() {
+  const live = await liveEliminated();
+  if (live && live.length) eliminated = live;
   render();
   enrich();
-  // keep the eliminated list fresh while the page is open (cron refreshes scores.json)
-  setInterval(() => loadEliminated().then(() => { render(); enrich(); }), 120000);
-});
+}
+
+render();
+// instant paint from the committed snapshot, then take over with live ESPN data
+loadEliminated().then(() => { render(); enrich(); });
+refresh();
+setInterval(refresh, 90000);
 </script>
 </body>
 </html>
