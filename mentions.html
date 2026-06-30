@@ -62,8 +62,13 @@
   .mention:last-child { border-bottom: 0; }
   .mention.clickable { cursor: pointer; }
   .mention.clickable:hover .pname { color: var(--accent); }
+  .mention.bad.clickable:hover .pname { color: var(--red); }
   .mention .body { flex: 1 1 auto; min-width: 0; }
-  .mention .pname { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; transition: color .12s; }
+  .mention .pname { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 6px; transition: color .12s; }
+  .mention .pname .mk { font-size: 12px; flex: 0 0 auto; }
+  .mention .pname .mk.good { color: var(--accent); }
+  .mention .pname .mk.bad { color: var(--red); }
+  .mention.bad .avatar { border-color: rgba(207,96,112,.45); color: var(--red); }
   .mention .pname .num { font-family: var(--mono); font-size: 11px; color: var(--faint); font-weight: 600; }
   .mention .psub { font-size: 12px; color: var(--faint); margin-top: 1px; }
   .mention .pnote { font-size: 13px; color: var(--muted); margin-top: 3px; }
@@ -83,6 +88,23 @@
     background-size: cover; background-position: center top;
   }
   .avatar.lg { width: 92px; height: 92px; font-size: 30px; }
+
+  .stat .n.bad { color: var(--red); }
+
+  /* Good/flop type toggle in the add row */
+  .type-toggle { display: inline-flex; flex: 0 0 auto; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .type-toggle .tt {
+    background: var(--card); border: 0; color: var(--faint); width: 38px; padding: 9px 0;
+    font: inherit; font-size: 15px; cursor: pointer; line-height: 1;
+  }
+  .type-toggle .tt + .tt { border-left: 1px solid var(--line); }
+  .type-toggle .tt[data-type="good"].on { background: var(--accent); color: #1a1205; }
+  .type-toggle .tt[data-type="bad"].on { background: var(--red); color: #1a0608; }
+
+  .vtag { font-size: 10px; font-weight: 800; letter-spacing: .04em; padding: 2px 7px; border-radius: 999px; vertical-align: middle; }
+  .vtag.good { color: var(--accent); border: 1px solid rgba(230,178,74,.5); }
+  .vtag.bad { color: var(--red); border: 1px solid rgba(207,96,112,.5); }
+  .modal-note.bad .lab { color: var(--red); }
 
   /* Player detail modal */
   .modal-bg {
@@ -140,7 +162,7 @@
   <header class="hero">
     <div class="eyebrow">My tournament notebook</div>
     <h1>Player mentions<br /><em>knocked out in the playoffs</em></h1>
-    <p class="sub">As teams go out in the knockouts, jot down the players who impressed before they head home. Eliminations update automatically; your notes are saved on this device.</p>
+    <p class="sub">As teams go out in the knockouts, jot down the players who stood out — the ones who impressed (★) and the flops (▾). Eliminations update automatically; your notes are saved on this device.</p>
     <div class="rule"></div>
   </header>
 
@@ -172,7 +194,9 @@ const SEED = {
     { player: "Summerville", note: "Direct, dangerous off the wing — a livewire." }
   ],
   "Germany": [
-    { player: "Nathaniel Brown", note: "Composed young full-back who held his own." }
+    { player: "Nathaniel Brown", note: "Composed young full-back who held his own." },
+    { player: "Leroy Sané", note: "Anonymous — drifted out of the game when it mattered.", type: "bad" },
+    { player: "Goretzka", note: "Off the pace in midfield, never got a grip.", type: "bad" }
   ]
 };
 
@@ -331,11 +355,14 @@ function avatar(athlete, fallbackName, lg) {
 
 function mentionsFor(team) { return store[team] || []; }
 
-function addMention(team, player, note) {
+const mtype = (m) => (m.type === "bad" ? "bad" : "good");
+
+function addMention(team, player, note, type) {
   player = (player || "").trim();
   if (!player) return;
   note = (note || "").trim();
-  store = { ...store, [team]: [...mentionsFor(team), { player, note }] };
+  const entry = type === "bad" ? { player, note, type: "bad" } : { player, note };
+  store = { ...store, [team]: [...mentionsFor(team), entry] };
   saveStore(store);
   render();
 }
@@ -349,12 +376,13 @@ function removeMention(team, idx) {
 function render() {
   const list = document.getElementById("list");
   const teams = eliminated.length;
-  let totalMentions = 0;
-  for (const e of eliminated) totalMentions += mentionsFor(e.team).length;
+  let good = 0, bad = 0;
+  for (const e of eliminated) for (const m of mentionsFor(e.team)) (mtype(m) === "bad" ? bad++ : good++);
 
   document.getElementById("summary").innerHTML = `
     <div class="stat"><div class="n">${teams}</div><div class="l">Teams out</div></div>
-    <div class="stat"><div class="n accent">${totalMentions}</div><div class="l">Mentions</div></div>
+    <div class="stat"><div class="n accent">${good}</div><div class="l">★ Impressed</div></div>
+    <div class="stat"><div class="n bad">${bad}</div><div class="l">▾ Flops</div></div>
   `;
 
   if (teams === 0) {
@@ -363,23 +391,26 @@ function render() {
   }
 
   list.innerHTML = eliminated.map(e => {
-    const ms = mentionsFor(e.team);
+    // impressed first, then flops; keep insertion order within each
+    const ms = mentionsFor(e.team).map((m, i) => ({ m, i }))
+      .sort((x, y) => (mtype(x.m) === "bad") - (mtype(y.m) === "bad"));
     const rows = ms.length
-      ? ms.map((m, i) => {
+      ? ms.map(({ m, i }) => {
+        const t = mtype(m);
         const a = findAthlete(e.team, m.player);
         const sub = a ? [a.pos, a.jersey ? `#${a.jersey}` : "", a.age ? `${a.age} yrs` : ""].filter(Boolean).join(" · ") : "";
         return `
-        <div class="mention clickable" data-team="${esc(e.team)}" data-idx="${i}">
+        <div class="mention clickable ${t}" data-team="${esc(e.team)}" data-idx="${i}">
           ${avatar(a, m.player)}
           <div class="body">
-            <div class="pname">${esc(a ? a.fullName : m.player)}${a && a.jersey ? `<span class="num">#${esc(a.jersey)}</span>` : ""}</div>
+            <div class="pname"><span class="mk ${t}">${t === "bad" ? "▾" : "★"}</span>${esc(a ? a.fullName : m.player)}${a && a.jersey ? `<span class="num">#${esc(a.jersey)}</span>` : ""}</div>
             ${sub ? `<div class="psub">${esc(sub)}</div>` : ""}
             ${m.note ? `<div class="pnote">${esc(m.note)}</div>` : ""}
           </div>
           <span class="chev">›</span>
           <button class="del" data-team="${esc(e.team)}" data-idx="${i}" title="Remove" aria-label="Remove">✕</button>
         </div>`; }).join("")
-      : `<div class="empty-m">No mentions yet — add a player who impressed.</div>`;
+      : `<div class="empty-m">No mentions yet — add a player who stood out.</div>`;
     return `
       <div class="team-card">
         <div class="tc-head">
@@ -392,9 +423,13 @@ function render() {
         </div>
         <div class="mentions">${rows}</div>
         <div class="add-row" data-team="${esc(e.team)}">
+          <div class="type-toggle">
+            <button type="button" class="tt on" data-type="good" title="Impressed">★</button>
+            <button type="button" class="tt" data-type="bad" title="Flop">▾</button>
+          </div>
           <input class="pl" type="text" placeholder="Player" aria-label="Player name" />
-          <input class="nt" type="text" placeholder="Why they impressed (optional)" aria-label="Note" />
-          <button type="button">Add</button>
+          <input class="nt" type="text" placeholder="Why (optional)" aria-label="Note" />
+          <button type="button" class="add-btn">Add</button>
         </div>
       </div>`;
   }).join("");
@@ -411,8 +446,13 @@ function render() {
   list.querySelectorAll(".add-row").forEach(row => {
     const team = row.dataset.team;
     const pl = row.querySelector(".pl"), nt = row.querySelector(".nt");
-    const submit = () => { addMention(team, pl.value, nt.value); };
-    row.querySelector("button").addEventListener("click", submit);
+    let type = "good";
+    row.querySelectorAll(".tt").forEach(btn => btn.addEventListener("click", () => {
+      type = btn.dataset.type;
+      row.querySelectorAll(".tt").forEach(b => b.classList.toggle("on", b === btn));
+    }));
+    const submit = () => { addMention(team, pl.value, nt.value, type); };
+    row.querySelector(".add-btn").addEventListener("click", submit);
     [pl, nt].forEach(inp => inp.addEventListener("keydown", e => { if (e.key === "Enter") submit(); }));
   });
 }
@@ -431,19 +471,25 @@ function openPlayer(team, idx) {
     fact("Born", a.birthPlace)
   ].filter(Boolean).join("") : "";
 
+  const t = mtype(m);
+  const tag = t === "bad"
+    ? `<span class="vtag bad">▾ Flop</span>` : `<span class="vtag good">★ Impressed</span>`;
+  const noteLab = t === "bad" ? "Why they disappointed" : "Why they impressed";
+  const noteEmpty = t === "bad" ? "No note yet — they just didn't do it for you." : "No note yet — they just caught your eye.";
+
   document.getElementById("modalContent").innerHTML = `
     <div class="modal-head">
       ${avatar(a, m.player, true)}
       <div class="who">
-        <div class="nm">${esc(a ? a.fullName : m.player)}</div>
+        <div class="nm">${esc(a ? a.fullName : m.player)} ${tag}</div>
         <div class="tm">${e ? `${e.flag || ""} ${esc(e.team)} · out in the ${esc(e.roundLabel)}` : ""}</div>
       </div>
     </div>
     <div class="modal-body">
       ${facts ? `<div class="facts">${facts}</div>` : ""}
       ${m.note
-        ? `<div class="modal-note"><span class="lab">Why they impressed</span>${esc(m.note)}</div>`
-        : `<div class="modal-note empty">No note yet — they just caught your eye.</div>`}
+        ? `<div class="modal-note ${t}"><span class="lab">${noteLab}</span>${esc(m.note)}</div>`
+        : `<div class="modal-note empty">${noteEmpty}</div>`}
       ${a && a.link ? `<a class="modal-link" href="${esc(a.link)}" target="_blank" rel="noopener">Full profile on ESPN →</a>` : ""}
       ${!a ? `<div class="modal-miss">No matching squad profile found — showing your note only.</div>` : ""}
     </div>`;
