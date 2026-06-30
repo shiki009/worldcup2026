@@ -201,14 +201,27 @@ const SEED = {
 };
 
 const STORE_KEY = "wc26_mentions";
+const SEEDED_KEY = "wc26_mentions_seeded"; // which seed players we've already added once
 function loadStore() {
-  let store;
+  let store, applied;
   try { store = JSON.parse(localStorage.getItem(STORE_KEY)) || {}; }
   catch (e) { store = {}; }
+  try { applied = new Set(JSON.parse(localStorage.getItem(SEEDED_KEY)) || []); }
+  catch (e) { applied = new Set(); }
+
+  // Add each seed player exactly once (per team+player), so newly-seeded players
+  // reach returning visitors too — without re-adding ones you've since deleted.
   let changed = false;
   for (const team in SEED) {
-    if (!(team in store)) { store[team] = SEED[team].map(m => ({ ...m })); changed = true; }
+    for (const m of SEED[team]) {
+      const key = `${team}::${m.player}`;
+      if (applied.has(key)) continue;
+      const list = store[team] || [];
+      if (!list.some(x => x.player === m.player)) { store[team] = [...list, { ...m }]; changed = true; }
+      applied.add(key);
+    }
   }
+  localStorage.setItem(SEEDED_KEY, JSON.stringify([...applied]));
   if (changed) saveStore(store);
   return store;
 }
