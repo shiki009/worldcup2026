@@ -195,14 +195,16 @@ const SEED = {
     { player: "Verbruggen", note: "Commanding in goal — kept them in the tie with big saves." }
   ],
   "Germany": [
-    { player: "Nathaniel Brown", note: "Composed young full-back who held his own." },
     { player: "Leroy Sané", note: "Anonymous — drifted out of the game when it mattered.", type: "bad" },
     { player: "Goretzka", note: "Off the pace in midfield, never got a grip.", type: "bad" }
   ]
 };
+// Seed players to remove once from existing devices (e.g. ones added then retracted).
+const SEED_REMOVE = [{ team: "Germany", player: "Nathaniel Brown" }];
 
 const STORE_KEY = "wc26_mentions";
 const SEEDED_KEY = "wc26_mentions_seeded"; // which seed players we've already added once
+const REMOVED_KEY = "wc26_mentions_removed"; // which seed players we've pruned once
 function loadStore() {
   let store, applied;
   try { store = JSON.parse(localStorage.getItem(STORE_KEY)) || {}; }
@@ -223,6 +225,23 @@ function loadStore() {
     }
   }
   localStorage.setItem(SEEDED_KEY, JSON.stringify([...applied]));
+
+  // Prune retracted seed players once (won't fight a later manual re-add).
+  let removed;
+  try { removed = new Set(JSON.parse(localStorage.getItem(REMOVED_KEY)) || []); }
+  catch (e) { removed = new Set(); }
+  for (const r of SEED_REMOVE) {
+    const key = `${r.team}::${r.player}`;
+    if (removed.has(key)) continue;
+    const list = store[r.team];
+    if (list) {
+      const next = list.filter(x => x.player !== r.player);
+      if (next.length !== list.length) { store[r.team] = next; changed = true; }
+    }
+    removed.add(key);
+  }
+  localStorage.setItem(REMOVED_KEY, JSON.stringify([...removed]));
+
   if (changed) saveStore(store);
   return store;
 }
