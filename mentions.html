@@ -199,13 +199,16 @@ const SEED = {
     { player: "Goretzka", note: "Off the pace in midfield, never got a grip.", type: "bad" }
   ],
   "Ivory Coast": [
-    { player: "Ousmane Diomande", note: "Commanding at the back — calm and dominant." },
+    { player: "Yan Diomande", note: "Fearless young forward — direct and full of running." },
     { player: "Diallo", note: "Bright spark on the wing — drove them forward." },
     { player: "Konan", note: "Solid at left-back and a constant outlet going forward." }
   ]
 };
 // Seed players to remove once from existing devices (e.g. ones added then retracted).
-const SEED_REMOVE = [{ team: "Germany", player: "Nathaniel Brown" }];
+const SEED_REMOVE = [
+  { team: "Germany", player: "Nathaniel Brown" },
+  { team: "Ivory Coast", player: "Ousmane Diomande" }
+];
 
 const STORE_KEY = "wc26_mentions";
 const SEEDED_KEY = "wc26_mentions_seeded"; // which seed players we've already added once
