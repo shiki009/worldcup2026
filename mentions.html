@@ -167,6 +167,12 @@ const SEED = {
   "South Africa": [
     { player: "Mudau", note: "Right-back — composed and a constant outlet going forward." },
     { player: "Mbokazi", note: "Teenage centre-back who looked unfazed on the big stage." }
+  ],
+  "Netherlands": [
+    { player: "Summerville", note: "Direct, dangerous off the wing — a livewire." }
+  ],
+  "Germany": [
+    { player: "Nathaniel Brown", note: "Composed young full-back who held his own." }
   ]
 };
 
@@ -264,10 +270,13 @@ async function liveEliminated() {
       const etDate = new Date(new Date(ev.date).getTime() - 4 * 3600000).toISOString().slice(0, 10);
       const team = canonName(loserC.team.displayName);
       const lostTo = canonName(winnerC.team.displayName);
+      let score = `${loserC.score}–${winnerC.score}`;
+      if (loserC.shootoutScore != null && winnerC.shootoutScore != null) {
+        score += ` (${loserC.shootoutScore}–${winnerC.shootoutScore} pens)`;
+      }
       out.push({
         team, flag: flagFor(team), teamId: loserC.team.id,
-        roundLabel, lostTo, lostToFlag: flagFor(lostTo),
-        score: `${loserC.score}–${winnerC.score}`, date: etDate
+        roundLabel, lostTo, lostToFlag: flagFor(lostTo), score, date: etDate
       });
     }
   }
