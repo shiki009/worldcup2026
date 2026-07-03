@@ -198,6 +198,9 @@
   .m-window.green { color: var(--green); }
   .m-window.yellow { color: var(--amber); }
   .m-window.red { color: var(--red); }
+  .m-wx { font-size: 11px; color: var(--muted); margin-top: 5px; font-variant-numeric: tabular-nums; }
+  .m-wx .heat { color: var(--red); font-weight: 800; letter-spacing: .06em; }
+  .m-wx .cool { color: var(--faint); }
 
   .m-actions {
     flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px;
@@ -534,6 +537,29 @@ const FLAGS = {
   "Uzbekistan":"🇺🇿","Colombia":"🇨🇴"
 };
 
+// Stadium coordinates + roof situation, for the game-time weather line.
+// roof: "ac" = closed/closable roof with climate control (heat is no factor),
+//       "roof" = covered pitch but open-air (shade only), "open" = fully exposed.
+const VENUES = {
+  "Estadio Azteca":          { lat: 19.3029,  lon: -99.1505,  roof: "open" },
+  "Estadio Akron":           { lat: 20.6817,  lon: -103.4626, roof: "open" },
+  "Estadio BBVA":            { lat: 25.6693,  lon: -100.2444, roof: "open" },
+  "BMO Field":               { lat: 43.6332,  lon: -79.4186,  roof: "open" },
+  "BC Place":                { lat: 49.2768,  lon: -123.1119, roof: "roof" },
+  "SoFi Stadium":            { lat: 33.9535,  lon: -118.3392, roof: "roof" },
+  "Levi's Stadium":          { lat: 37.4033,  lon: -121.9694, roof: "open" },
+  "Lumen Field":             { lat: 47.5952,  lon: -122.3316, roof: "open" },
+  "MetLife Stadium":         { lat: 40.8135,  lon: -74.0745,  roof: "open" },
+  "Gillette Stadium":        { lat: 42.0909,  lon: -71.2643,  roof: "open" },
+  "Lincoln Financial Field": { lat: 39.9008,  lon: -75.1675,  roof: "open" },
+  "Hard Rock Stadium":       { lat: 25.958,   lon: -80.2389,  roof: "open" },
+  "Arrowhead Stadium":       { lat: 39.0489,  lon: -94.4839,  roof: "open" },
+  "NRG Stadium":             { lat: 29.6847,  lon: -95.4107,  roof: "ac" },
+  "AT&T Stadium":            { lat: 32.7473,  lon: -97.0945,  roof: "ac" },
+  "Mercedes-Benz Stadium":   { lat: 33.7554,  lon: -84.4008,  roof: "ac" }
+};
+const ROOF_LABEL = { ac: "roof + AC", roof: "roof, open sides", open: "open-air" };
+
 const ROUND_LABELS = {
   group:"Group", r32:"Round of 32", r16:"Round of 16",
   qf:"Quarter-final", sf:"Semi-final", third:"3rd place", final:"FINAL"
@@ -770,6 +796,81 @@ function orientedGoals(sc, homeName, awayName) {
     if (hn === sc.ea || an === sc.eh) return { hg: sc.a, ag: sc.h };
   }
   return { hg: sc.h, ag: sc.a };
+}
+
+// ============================================================================
+//  Game-time weather  —  one Open-Meteo call for all upcoming venues (free, CORS)
+// ============================================================================
+let weather = {}; // n -> { temp, feels, pcp, code }
+
+// Kickoff as a unix hour (ET is UTC-4), matching Open-Meteo's unixtime axis.
+function kickoffUnixHour(m) {
+  const [y, mo, d] = m.date.split("-").map(Number);
+  const [hh, mm] = m.et.split(":").map(Number);
+  return Math.floor(Date.UTC(y, mo - 1, d, hh + 4, mm) / 3600000) * 3600;
+}
+
+const WX_ICON = (c) =>
+  c === 0 ? "☀️" : c <= 2 ? "🌤" : c === 3 ? "☁️" : c <= 48 ? "🌫" :
+  c <= 67 ? "🌦" : c <= 77 ? "🌨" : c <= 82 ? "🌧" : c <= 86 ? "🌨" : "⛈";
+
+async function loadWeather() {
+  // Upcoming games only, inside Open-Meteo's ~16-day hourly forecast horizon.
+  const horizon = Date.now() / 1000 + 16 * 86400;
+  const upcoming = MATCHES.filter(m =>
+    !isFinished(m) && VENUES[m.venue] && kickoffUnixHour(m) < horizon &&
+    kickoffUnixHour(m) > Date.now() / 1000 - 3 * 3600);
+  if (!upcoming.length) return;
+
+  const venues = [...new Set(upcoming.map(m => m.venue))];
+  const url = "https://api.open-meteo.com/v1/forecast" +
+    `?latitude=${venues.map(v => VENUES[v].lat).join(",")}` +
+    `&longitude=${venues.map(v => VENUES[v].lon).join(",")}` +
+    "&hourly=temperature_2m,apparent_temperature,precipitation_probability,weather_code" +
+    "&timeformat=unixtime&forecast_days=16";
+  let data;
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return;
+    data = await res.json();
+  } catch (e) { return; } // no forecast — cards just show roof info
+  const locs = Array.isArray(data) ? data : [data];
+
+  const byVenue = {};
+  venues.forEach((v, i) => { if (locs[i] && locs[i].hourly) byVenue[v] = locs[i].hourly; });
+  const next = {};
+  for (const m of upcoming) {
+    const h = byVenue[m.venue];
+    if (!h || !Array.isArray(h.time)) continue;
+    const i = h.time.indexOf(kickoffUnixHour(m));
+    if (i === -1 || h.temperature_2m[i] == null) continue;
+    next[m.n] = {
+      temp: Math.round(h.temperature_2m[i]),
+      feels: Math.round(h.apparent_temperature[i]),
+      pcp: h.precipitation_probability ? h.precipitation_probability[i] : null,
+      code: h.weather_code ? h.weather_code[i] : null
+    };
+  }
+  weather = next;
+  render();
+}
+
+// HEAT if it feels ≥32° on an exposed pitch (≥35° under a shade-only roof).
+function weatherLine(m) {
+  const venue = VENUES[m.venue];
+  if (!venue || isFinished(m)) return "";
+  const w = weather[m.n];
+  const roof = ROOF_LABEL[venue.roof];
+  if (!w) return `<div class="m-wx"><span class="cool">${roof}</span></div>`;
+  const hot = venue.roof === "open" ? w.feels >= 32 : venue.roof === "roof" ? w.feels >= 35 : false;
+  const parts = [
+    `${w.code != null ? WX_ICON(w.code) + " " : ""}${w.temp}°C at kickoff` +
+      (w.feels !== w.temp ? ` (feels ${w.feels}°)` : ""),
+    w.pcp != null && w.pcp >= 30 ? `${w.pcp}% rain` : null,
+    roof,
+    hot ? `<span class="heat">🔥 HEAT</span>` : venue.roof === "ac" ? `<span class="cool">heat no factor</span>` : null
+  ].filter(Boolean);
+  return `<div class="m-wx">${parts.join(" · ")}</div>`;
 }
 
 // ============================================================================
@@ -1075,6 +1176,7 @@ function renderMatch(m, v) {
         ${teamSide(m.away, m.n)}
       </div>
       <div class="m-where">${m.city} · ${m.venue}</div>
+      ${weatherLine(m)}
       <div class="m-window ${v}">${windowLine(m, v)}</div>
     </div>
     <div class="m-actions">
@@ -1242,6 +1344,7 @@ document.getElementById("resetWindow").addEventListener("click", () => {
 // Initial paint with no scores (placeholders), then hydrate from the cron-built
 // snapshot, then keep live games fresh straight from ESPN.
 render();
+loadWeather();
 loadScores().then(() => {
   render();
   // Full backfill from ESPN once (covers gaps in the deployed snapshot), then
