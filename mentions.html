@@ -187,50 +187,67 @@
 // so newly-seeded teams still appear for returning visitors without clobbering edits.
 const SEED = {
   "South Africa": [
-    { player: "Mudau", note: "Right-back — composed and a constant outlet going forward." },
-    { player: "Mbokazi", note: "Teenage centre-back who looked unfazed on the big stage." }
+    { player: "Mudau" },
+    { player: "Mbokazi" }
   ],
   "Netherlands": [
-    { player: "Summerville", note: "Direct, dangerous off the wing — a livewire." },
-    { player: "Verbruggen", note: "Commanding in goal — kept them in the tie with big saves." }
+    { player: "Summerville" },
+    { player: "Verbruggen" }
   ],
   "Germany": [
-    { player: "Leroy Sané", note: "Anonymous — drifted out of the game when it mattered.", type: "bad" },
-    { player: "Goretzka", note: "Off the pace in midfield, never got a grip.", type: "bad" }
+    { player: "Leroy Sané", type: "bad" },
+    { player: "Goretzka", type: "bad" }
   ],
   "Ivory Coast": [
-    { player: "Yan Diomande", note: "Fearless young forward — direct and full of running." },
-    { player: "Diallo", note: "Bright spark on the wing — drove them forward." },
-    { player: "Konan", note: "Solid at left-back and a constant outlet going forward." },
-    { player: "Singo", note: "Powerful and assured — dangerous getting forward." },
-    { player: "Bonny", note: "Isolated up top and never got into it.", type: "bad" }
+    { player: "Yan Diomande" },
+    { player: "Diallo" },
+    { player: "Konan" },
+    { player: "Singo" },
+    { player: "Bonny", type: "bad" }
   ],
   "Ecuador": [
-    { player: "Pedro Vite", note: "Tidy and inventive in midfield — pulled the strings." },
-    { player: "Enner Valencia", note: "Off the pace — the veteran couldn't spark it.", type: "bad" }
+    { player: "Pedro Vite" },
+    { player: "Enner Valencia", type: "bad" }
   ],
   "DR Congo": [
-    { player: "Wissa", note: "Lively and clinical up front — their main threat." },
-    { player: "Bakambu", note: "Quiet night — couldn't get into the game.", type: "bad" }
+    { player: "Wissa" },
+    { player: "Bakambu", type: "bad" }
+  ],
+  "Croatia": [
+    { player: "Ivan Perišić" },
+    { player: "Martin Baturina" },
+    { player: "Joško Gvardiol", type: "bad" },
+    { player: "Andrej Kramarić", type: "bad" },
+    { player: "Ante Budimir", type: "bad" }
+  ],
+  "Algeria": [
+    { player: "Riyad Mahrez" },
+    { player: "Luca Zidane", type: "bad" },
+    { player: "Amine Gouiri", type: "bad" }
+  ],
+  "Austria": [
+    { player: "Marcel Sabitzer" },
+    { player: "Carney Chukwuemeka", type: "bad" },
+    { player: "Stefan Posch", type: "bad" }
   ],
   "Senegal": [
-    { player: "Ismaïla Sarr", note: "Direct and dangerous on the wing — constant threat." },
-    { player: "Iliman Ndiaye", note: "Bright and inventive — made things happen." },
-    { player: "Kalidou Koulibaly", note: "Off the pace at the back — a rough night for the captain.", type: "bad" },
-    { player: "Malick Diouf", note: "Exposed down his flank — struggled all game.", type: "bad" }
+    { player: "Ismaïla Sarr" },
+    { player: "Iliman Ndiaye" },
+    { player: "Kalidou Koulibaly", type: "bad" },
+    { player: "Malick Diouf", type: "bad" }
   ],
   "Bosnia and Herzegovina": [
-    { player: "Nikola Vasilj", note: "Commanding in goal — big saves kept them in it." },
-    { player: "Ermedin Demirović", note: "Led the line well — a handful all game." },
-    { player: "Tarik Muharemović", note: "Struggled at the back — caught out too often.", type: "bad" }
+    { player: "Nikola Vasilj" },
+    { player: "Ermedin Demirović" },
+    { player: "Tarik Muharemović", type: "bad" }
   ],
   "Sweden": [
-    { player: "Widell Zetterström", note: "Kept Sweden in it with a string of big saves." },
-    { player: "Ayari", note: "Energetic in midfield — drove them forward." },
-    { player: "Elanga", note: "Electric pace, a threat every time he ran." },
-    { player: "Isak", note: "A constant menace up top — led the line well." },
-    { player: "Lindelöf", note: "Shaky at the back when it was tested.", type: "bad" },
-    { player: "Isak Hien", note: "Caught out too often — a rough night defensively.", type: "bad" }
+    { player: "Widell Zetterström" },
+    { player: "Ayari" },
+    { player: "Elanga" },
+    { player: "Isak" },
+    { player: "Lindelöf", type: "bad" },
+    { player: "Isak Hien", type: "bad" }
   ]
 };
 // Seed players to remove once from existing devices (e.g. ones added then retracted).
@@ -278,6 +295,20 @@ function loadStore() {
     removed.add(key);
   }
   localStorage.setItem(REMOVED_KEY, JSON.stringify([...removed]));
+
+  // One-time cleanup: seed notes were retired — strip them from stored seed
+  // players on devices that picked them up earlier (manual notes untouched).
+  const DENOTED_KEY = "wc26_mentions_denoted";
+  if (!localStorage.getItem(DENOTED_KEY)) {
+    for (const team in SEED) {
+      const list = store[team];
+      if (!list) continue;
+      const seedNames = new Set(SEED[team].map(m => m.player));
+      const next = list.map(x => seedNames.has(x.player) && x.note ? { ...x, note: "" } : x);
+      if (next.some((x, i) => x !== list[i])) { store[team] = next; changed = true; }
+    }
+    localStorage.setItem(DENOTED_KEY, "1");
+  }
 
   if (changed) saveStore(store);
   return store;
