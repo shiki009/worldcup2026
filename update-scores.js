@@ -188,12 +188,28 @@ async function main() {
     const home = sides.home, away = sides.away;
     if (!home || !away) continue;
 
-    const key = ev.date.slice(0, 16); // already UTC ...THH:MM
-    const candidates = byInstant.get(key);
-    if (!candidates) { unmatched++; continue; }
-
     const eh = normName(home.team.displayName);
     const ea = normName(away.team.displayName);
+
+    // Exact kickoff instant, else any fixture within ±2h — real kickoffs
+    // sometimes shift an hour vs our schedule (match 79 did); ambiguous
+    // near-misses must agree on a team name.
+    let candidates = byInstant.get(ev.date.slice(0, 16));
+    if (!candidates) {
+      const t = Date.parse(ev.date);
+      const near = matches.filter((mt) => {
+        const [y, mo, d] = mt.date.split("-").map(Number);
+        const [hh, mm] = mt.et.split(":").map(Number);
+        return Math.abs(Date.UTC(y, mo - 1, d, hh + 4, mm) - t) <= 2 * 3600 * 1000;
+      });
+      if (near.length === 1) candidates = near;
+      else {
+        const byName = near.filter((mt) =>
+          [mt.home, mt.away].some((x) => { const n = normName(x); return n === eh || n === ea; }));
+        candidates = byName.length ? byName : null;
+      }
+    }
+    if (!candidates) { unmatched++; continue; }
     if (home.team.id) teamIds[eh] = home.team.id;
     if (away.team.id) teamIds[ea] = away.team.id;
     let pick = candidates[0];

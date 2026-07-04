@@ -497,7 +497,7 @@ const MATCHES = [
   {"n":76,"date":"2026-06-29","et":"13:00","home":"Winner Group C","away":"Runner-up Group F","city":"Houston","venue":"NRG Stadium","group":null,"round":"r32"},
   {"n":77,"date":"2026-06-30","et":"17:00","home":"Winner Group I","away":"3rd Group C/D/F/G/H","city":"New York/New Jersey","venue":"MetLife Stadium","group":null,"round":"r32"},
   {"n":78,"date":"2026-06-30","et":"13:00","home":"Runner-up Group E","away":"Runner-up Group I","city":"Dallas","venue":"AT&T Stadium","group":null,"round":"r32"},
-  {"n":79,"date":"2026-06-30","et":"21:00","home":"Winner Group A","away":"3rd Group C/E/F/H/I","city":"Mexico City","venue":"Estadio Azteca","group":null,"round":"r32"},
+  {"n":79,"date":"2026-06-30","et":"22:00","home":"Winner Group A","away":"3rd Group C/E/F/H/I","city":"Mexico City","venue":"Estadio Azteca","group":null,"round":"r32"},
   {"n":80,"date":"2026-07-01","et":"12:00","home":"Winner Group L","away":"3rd Group E/H/I/J/K","city":"Atlanta","venue":"Mercedes-Benz Stadium","group":null,"round":"r32"},
   {"n":81,"date":"2026-07-01","et":"20:00","home":"Winner Group D","away":"3rd Group B/E/F/I/J","city":"San Francisco Bay Area","venue":"Levi's Stadium","group":null,"round":"r32"},
   {"n":82,"date":"2026-07-01","et":"16:00","home":"Winner Group G","away":"3rd Group A/E/H/I/J","city":"Seattle","venue":"Lumen Field","group":null,"round":"r32"},
@@ -678,6 +678,24 @@ const BY_INSTANT = (() => {
   }
   return idx;
 })();
+// Exact kickoff instant, else any fixture within ±2h — real kickoffs sometimes
+// shift an hour vs our schedule (match 79 did), and an exact-only match would
+// silently drop the result. Ambiguous near-misses must agree on a team name.
+function matchUtcMs(m) {
+  const [y, mo, d] = m.date.split("-").map(Number);
+  const [hh, mm] = m.et.split(":").map(Number);
+  return Date.UTC(y, mo - 1, d, hh + 4, mm);
+}
+function candidatesFor(evDate, eh, ea) {
+  const exact = BY_INSTANT.get(evDate.slice(0, 16));
+  if (exact) return exact;
+  const t = Date.parse(evDate);
+  const near = MATCHES.filter(m => Math.abs(matchUtcMs(m) - t) <= 2 * 3600 * 1000);
+  if (near.length === 1) return near;
+  const byName = near.filter(m =>
+    [m.home, m.away].some(x => { const n = normTeam(x); return n === eh || n === ea; }));
+  return byName.length ? byName : null;
+}
 function normTeam(s) {
   const ALIASES = {
     bosniaherzegovina: "bosniaandherzegovina", congodr: "drcongo",
@@ -755,9 +773,9 @@ async function liveRefresh(days = recentDays()) {
       const sides = {};
       for (const c of comp.competitors || []) sides[c.homeAway] = c;
       if (!sides.home || !sides.away) continue;
-      const cands = BY_INSTANT.get(ev.date.slice(0, 16));
-      if (!cands) continue;
       const eh = normTeam(sides.home.team.displayName), ea = normTeam(sides.away.team.displayName);
+      const cands = candidatesFor(ev.date, eh, ea);
+      if (!cands) continue;
       let pick = cands[0];
       if (cands.length > 1) {
         let best = -1;
