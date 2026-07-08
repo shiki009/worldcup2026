@@ -357,6 +357,9 @@
       <span class="chip toggle on" id="hideFinished" role="button" tabindex="0" title="Hide games that have already finished">
         <span class="check">✓</span>Hide finished<span class="cnt" id="hideFinishedCnt"></span>
       </span>
+      <span class="chip toggle" id="astroToggle" role="button" tabindex="0" title="Show the kickoff-chart astrology reading on each game — for fun; judge the hit rate yourself">
+        <span class="check">✓</span>🔮 Astro
+      </span>
     </div>
     <div class="row">
       <div class="chips" id="verdictChips">
@@ -644,7 +647,8 @@ const state = {
   round: "all",
   verdicts: new Set(["green", "yellow", "red"]),
   pick: null, // "want" | "skip" | "undecided" | null
-  hideFinished: true // default to focusing on upcoming/live games
+  hideFinished: true, // default to focusing on upcoming/live games
+  astro: localStorage.getItem("wc26_astro") === "1" // kickoff-chart readings, opt-in
 };
 function isFinished(m) { const sc = scores[m.n]; return !!(sc && sc.s === "FT"); }
 
@@ -1308,7 +1312,7 @@ function renderMatch(m, v) {
       </div>
       <div class="m-where">${m.city} · ${m.venue}</div>
       ${weatherLine(m)}
-      ${astroLine(m)}
+      ${state.astro ? astroLine(m) : ""}
       <div class="m-window ${v}">${windowLine(m, v)}</div>
     </div>
     <div class="m-actions">
@@ -1430,6 +1434,18 @@ function toggleHideFinished() {
 hideFinishedChip.addEventListener("click", toggleHideFinished);
 hideFinishedChip.addEventListener("keydown", (e) => {
   if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleHideFinished(); }
+});
+const astroChip = document.getElementById("astroToggle");
+astroChip.classList.toggle("on", state.astro);
+function toggleAstro() {
+  state.astro = !state.astro;
+  localStorage.setItem("wc26_astro", state.astro ? "1" : "0");
+  astroChip.classList.toggle("on", state.astro);
+  render();
+}
+astroChip.addEventListener("click", toggleAstro);
+astroChip.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleAstro(); }
 });
 document.getElementById("verdictChips").addEventListener("click", (e) => {
   const chip = e.target.closest(".chip");
