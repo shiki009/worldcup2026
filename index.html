@@ -918,6 +918,8 @@ const ORBITAL_ELEMENTS = {
             0.00001847, 0.00007882, -0.00813131, 19140.30268499, 0.44441088, -0.29257343],
   jupiter: [5.20288700, 0.04838624, 1.30439695, 34.39644051, 14.72847983, 100.47390909,
             -0.00011607, -0.00013253, -0.00183714, 3034.74612775, 0.21252668, 0.20469106],
+  saturn:  [9.53667594, 0.05386179, 2.48599187, 49.95424423, 92.59887831, 113.66242448,
+            -0.00125060, -0.00050991, 0.00193609, 1222.49362201, -0.41897216, -0.28867794],
   uranus:  [19.18916464, 0.04725744, 0.77263783, 313.23810451, 170.95427630, 74.01692503,
             -0.00196176, -0.00004397, -0.00242939, 428.48202785, 0.40805281, 0.04240589],
   neptune: [30.06992276, 0.00859048, 1.77004347, -55.12002969, 44.96476227, 131.78422574,
@@ -942,7 +944,7 @@ function eclipticLongitudes(ms) {
   const T = (ms / 86400000 + 2440587.5 - 2451545.0) / 36525;
   const e = helioXY("earth", T);
   const out = { sun: norm360(Math.atan2(-e.y, -e.x) / DEG) };
-  for (const p of ["mercury", "venus", "mars", "jupiter", "uranus", "neptune"]) {
+  for (const p of ["mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"]) {
     const h = helioXY(p, T);
     out[p] = norm360(Math.atan2(h.y - e.y, h.x - e.x) / DEG);
   }
@@ -959,12 +961,13 @@ function eclipticLongitudes(ms) {
 const ASPECT_ANGLES = [[0, "☌"], [60, "⚹"], [90, "□"], [120, "△"], [180, "☍"]];
 const ASPECT_ORB = 5;      // degrees, planet–planet
 const MOON_ORB = 8;        // the Moon traditionally gets a wider orb
-const PLANET_LABEL = { sun: "Sun", moon: "Moon", mercury: "Mercury", venus: "Venus", mars: "Mars", jupiter: "Jupiter", uranus: "Uranus", neptune: "Neptune" };
+const PLANET_LABEL = { sun: "Sun", moon: "Moon", mercury: "Mercury", venus: "Venus", mars: "Mars", jupiter: "Jupiter", saturn: "Saturn", uranus: "Uranus", neptune: "Neptune" };
 const ASTRO_THEMES = {
   mercury: { hard: "mix-ups — misplaced passes, offside-trap chaos", soft: "quick combinations, sharp counters" },
   venus:   { hard: "style over substance — pretty football, blunt edge", soft: "flowing, easy-on-the-eye attacking play" },
   mars:    { hard: "combative — cards, flare-ups, high aggression", soft: "relentless attacking intensity" },
   jupiter: { hard: "overconfidence — the favorite made to sweat", soft: "late luck — comeback fortune favors the favorite" },
+  saturn:  { hard: "grind — low block, frustration, stalemate risk", soft: "disciplined, professional game management" },
   uranus:  { hard: "upset energy — sudden twists, momentum flips", soft: "electric, fast-changing game" },
   neptune: { hard: "confusion — VAR drama, missed penalties", soft: "inspired flair, but slippery moments" }
 };
@@ -977,7 +980,40 @@ const MOON_FLAVOR = {
   Sagittarius: "open, end-to-end adventure", Capricorn: "disciplined, hard-nosed",
   Aquarius: "tactical surprises, oddball moments", Pisces: "dreamy flair or switched-off lapses"
 };
-const ASTRO_BODIES = ["moon", "sun", "mercury", "venus", "mars", "jupiter", "uranus", "neptune"]; // inner → outer
+const ASTRO_BODIES = ["moon", "sun", "mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"]; // inner → outer
+// Traditional sign rulers, Aries → Pisces
+const SIGN_RULERS = ["mars", "venus", "mercury", "moon", "sun", "mercury", "venus", "mars", "jupiter", "saturn", "saturn", "jupiter"];
+const BENEFICS = new Set(["venus", "jupiter"]);
+const MALEFICS = new Set(["mars", "saturn", "uranus", "neptune"]);
+
+// Ascendant (rising ecliptic degree) at a UTC instant for a lat/lon — this is
+// what ties the chart to the stadium: 1st house = home side, 7th = away.
+function ascendantLon(ms, lat, lon) {
+  const jd = ms / 86400000 + 2440587.5;
+  const gmst = norm360(280.46061837 + 360.98564736629 * (jd - 2451545.0));
+  const ramc = (gmst + lon) * DEG;
+  const eps = 23.4393 * DEG, phi = lat * DEG;
+  return norm360(Math.atan2(Math.cos(ramc), -(Math.sin(ramc) * Math.cos(eps) + Math.tan(phi) * Math.sin(eps))) / DEG);
+}
+
+// Horary-style fortune score for a side's ruling planet: helped by benefics,
+// hurt by hard aspects from malefics.
+function rulerScore(ruler, lg) {
+  let s = 0;
+  for (const b of ASTRO_BODIES) {
+    if (b === ruler) continue;
+    let d = Math.abs(lg[ruler] - lg[b]);
+    if (d > 180) d = 360 - d;
+    for (const [angle] of ASPECT_ANGLES) {
+      if (Math.abs(d - angle) > ASPECT_ORB) continue;
+      const soft = angle === 60 || angle === 120, conj = angle === 0;
+      if (BENEFICS.has(b)) s += soft || conj ? 2 : -1;
+      else if (MALEFICS.has(b)) s += soft ? 1 : -2;
+      else s += soft ? 1 : -1; // Sun/Moon: mild help or hindrance (conj Sun = combust)
+    }
+  }
+  return s;
+}
 const astroCache = {};
 function astroFor(m) {
   if (astroCache[m.n]) return astroCache[m.n];
@@ -1014,15 +1050,36 @@ function astroFor(m) {
     if (!top.some(t => t.theme === h.theme)) top.push(h);
   }
   const res = { moonSign: ZODIAC_SIGNS[Math.floor(lg.moon / 30)], top };
+  // Who does the chart favor? 1st house (rising sign) ruler = home side,
+  // 7th house ruler = away side; compare how kindly each ruler is aspected.
+  const venue = VENUES[m.venue];
+  if (venue) {
+    const riseIdx = Math.floor(ascendantLon(matchUtcMs(m), venue.lat, venue.lon) / 30);
+    res.rising = ZODIAC_SIGNS[riseIdx];
+    res.homeRuler = SIGN_RULERS[riseIdx];
+    res.awayRuler = SIGN_RULERS[(riseIdx + 6) % 12];
+    res.homeScore = rulerScore(res.homeRuler, lg);
+    res.awayScore = rulerScore(res.awayRuler, lg);
+  }
   astroCache[m.n] = res;
   return res;
 }
-function astroLine(m) {
+function astroLine(m, homeName, awayName) {
   const a = astroFor(m);
   const bits = a.top.length
     ? a.top.map(h => `<b>${h.label}</b> ${h.theme}`)
     : ["quiet skies — no tight aspects, form should hold"];
-  return `<div class="m-astro">🔮 Moon in ${a.moonSign} — ${MOON_FLAVOR[a.moonSign]} · ${bits.join(" · ")}</div>`;
+  let edge = "";
+  if (a.rising && isReal(homeName) && isReal(awayName)) {
+    const fmt = (s) => s > 0 ? `+${s}` : `${s}`;
+    const diff = a.homeScore - a.awayScore;
+    const verdict = diff >= 2 ? `chart leans <b>${esc(homeName)}</b>`
+      : diff <= -2 ? `chart leans <b>${esc(awayName)}</b>`
+      : "no clear edge";
+    edge = `<div class="m-astro">⚖️ ${a.rising} rising — ${esc(homeName)} is ${PLANET_LABEL[a.homeRuler]} (${fmt(a.homeScore)}), ` +
+      `${esc(awayName)} is ${PLANET_LABEL[a.awayRuler]} (${fmt(a.awayScore)}) → ${verdict}</div>`;
+  }
+  return `<div class="m-astro">🔮 Moon in ${a.moonSign} — ${MOON_FLAVOR[a.moonSign]} · ${bits.join(" · ")}</div>${edge}`;
 }
 
 // ============================================================================
@@ -1329,7 +1386,7 @@ function renderMatch(m, v) {
       </div>
       <div class="m-where">${m.city} · ${m.venue}</div>
       ${weatherLine(m)}
-      ${state.astro ? astroLine(m) : ""}
+      ${state.astro ? astroLine(m, homeR ? homeR.name : m.home, awayR ? awayR.name : m.away) : ""}
       <div class="m-window ${v}">${windowLine(m, v)}</div>
     </div>
     <div class="m-actions">
