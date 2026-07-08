@@ -1014,6 +1014,65 @@ function rulerScore(ruler, lg) {
   }
   return s;
 }
+// ---------- Natal day-form: coach + key players vs the transits ----------
+// Sun-sign level (birth dates only, no birth times) for the teams still alive.
+// A person's "day" = aspects from transiting planets to their natal Sun.
+const TEAM_CHARTS = {
+  "France": { coach: { name: "Deschamps", born: "1968-10-15" }, players: [
+    { name: "Mbappé", born: "1998-12-20" }, { name: "Griezmann", born: "1991-03-21" }, { name: "Tchouaméni", born: "2000-01-27" }] },
+  "Morocco": { coach: { name: "Regragui", born: "1975-09-23" }, players: [
+    { name: "Hakimi", born: "1998-11-04" }, { name: "Brahim Díaz", born: "1999-08-03" }, { name: "En-Nesyri", born: "1997-06-01" }] },
+  "Spain": { coach: { name: "de la Fuente", born: "1961-06-21" }, players: [
+    { name: "Lamine Yamal", born: "2007-07-13" }, { name: "Pedri", born: "2002-11-25" }, { name: "Rodri", born: "1996-06-22" }] },
+  "Belgium": { coach: { name: "Garcia", born: "1964-02-20" }, players: [
+    { name: "De Bruyne", born: "1991-06-28" }, { name: "Doku", born: "2002-05-27" }, { name: "Lukaku", born: "1993-05-13" }] },
+  "Norway": { coach: { name: "Solbakken", born: "1968-02-27" }, players: [
+    { name: "Haaland", born: "2000-07-21" }, { name: "Ødegaard", born: "1998-12-17" }, { name: "Sørloth", born: "1995-12-05" }] },
+  "England": { coach: { name: "Tuchel", born: "1973-08-29" }, players: [
+    { name: "Kane", born: "1993-07-28" }, { name: "Bellingham", born: "2003-06-29" }, { name: "Saka", born: "2001-09-05" }] },
+  "Argentina": { coach: { name: "Scaloni", born: "1978-05-16" }, players: [
+    { name: "Messi", born: "1987-06-24" }, { name: "Julián Álvarez", born: "2000-01-31" }, { name: "Lautaro", born: "1997-08-22" }] },
+  "Switzerland": { coach: { name: "Yakin", born: "1974-09-15" }, players: [
+    { name: "Xhaka", born: "1992-09-27" }, { name: "Embolo", born: "1997-02-14" }, { name: "Sommer", born: "1988-12-17" }] }
+};
+const NATAL_ORB = 4;
+const natalSunCache = {};
+function natalSun(born) {
+  if (natalSunCache[born] == null) {
+    const [y, mo, d] = born.split("-").map(Number);
+    natalSunCache[born] = eclipticLongitudes(Date.UTC(y, mo - 1, d, 12)).sun;
+  }
+  return natalSunCache[born];
+}
+function personDayForm(born, lg) {
+  const nSun = natalSun(born);
+  let score = 0, best = null;
+  for (const t of ["venus", "mars", "jupiter", "saturn", "uranus", "neptune"]) {
+    let d = Math.abs(lg[t] - nSun);
+    if (d > 180) d = 360 - d;
+    for (const [angle, glyph] of ASPECT_ANGLES) {
+      if (Math.abs(d - angle) > NATAL_ORB) continue;
+      const soft = angle === 60 || angle === 120, conj = angle === 0;
+      const pts = BENEFICS.has(t) ? (soft || conj ? 2 : -1) : (soft ? 1 : -2);
+      score += pts;
+      const hit = { pts, txt: `${PLANET_LABEL[t]} ${glyph} natal Sun` };
+      if (!best || Math.abs(hit.pts) > Math.abs(best.pts)) best = hit;
+    }
+  }
+  return { score, best };
+}
+function teamDayForm(teamName, lg) {
+  const tc = TEAM_CHARTS[teamName];
+  if (!tc) return null;
+  let total = 0, hi = null;
+  for (const p of [tc.coach, ...tc.players]) {
+    const f = personDayForm(p.born, lg);
+    total += f.score;
+    if (f.best && (!hi || Math.abs(f.best.pts) > Math.abs(hi.pts))) hi = { ...f.best, name: p.name };
+  }
+  return { total, hi };
+}
+
 const astroCache = {};
 function astroFor(m) {
   if (astroCache[m.n]) return astroCache[m.n];
@@ -1061,6 +1120,7 @@ function astroFor(m) {
     res.homeScore = rulerScore(res.homeRuler, lg);
     res.awayScore = rulerScore(res.awayRuler, lg);
   }
+  res.lg = lg; // kept for natal day-form, which depends on resolved team names
   astroCache[m.n] = res;
   return res;
 }
@@ -1079,7 +1139,19 @@ function astroLine(m, homeName, awayName) {
     edge = `<div class="m-astro">⚖️ ${a.rising} rising — ${esc(homeName)} is ${PLANET_LABEL[a.homeRuler]} (${fmt(a.homeScore)}), ` +
       `${esc(awayName)} is ${PLANET_LABEL[a.awayRuler]} (${fmt(a.awayScore)}) → ${verdict}</div>`;
   }
-  return `<div class="m-astro">🔮 Moon in ${a.moonSign} — ${MOON_FLAVOR[a.moonSign]} · ${bits.join(" · ")}</div>${edge}`;
+  let squad = "";
+  const fh = teamDayForm(homeName, a.lg), fa = teamDayForm(awayName, a.lg);
+  if (fh && fa) {
+    const fmt = (s) => s > 0 ? `+${s}` : `${s}`;
+    const note = (f) => f.hi ? ` (${esc(f.hi.name)} — ${f.hi.txt}, ${f.hi.pts > 0 ? "lift" : "drag"})` : "";
+    const d = fh.total - fa.total;
+    const verdict = d >= 3 ? `stars lean <b>${esc(homeName)}</b>`
+      : d <= -3 ? `stars lean <b>${esc(awayName)}</b>`
+      : "even day-form";
+    squad = `<div class="m-astro">🌟 Squad day-form: ${esc(homeName)} ${fmt(fh.total)}${note(fh)} · ` +
+      `${esc(awayName)} ${fmt(fa.total)}${note(fa)} → ${verdict}</div>`;
+  }
+  return `<div class="m-astro">🔮 Moon in ${a.moonSign} — ${MOON_FLAVOR[a.moonSign]} · ${bits.join(" · ")}</div>${edge}${squad}`;
 }
 
 // ============================================================================
