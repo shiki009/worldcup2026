@@ -199,6 +199,8 @@
   .m-window.yellow { color: var(--amber); }
   .m-window.red { color: var(--red); }
   .m-wx { font-size: 11px; color: var(--muted); margin-top: 5px; font-variant-numeric: tabular-nums; }
+  .m-astro { font-size: 11px; color: #8d84b8; margin-top: 5px; }
+  .m-astro b { font-weight: 700; color: #a89fd6; }
   .m-wx .heat { color: var(--red); font-weight: 800; letter-spacing: .06em; }
   .m-wx .cool { color: var(--faint); }
 
@@ -892,6 +894,117 @@ function weatherLine(m) {
 }
 
 // ============================================================================
+//  Kickoff astrology — geocentric ecliptic longitudes from JPL approximate
+//  Keplerian elements + truncated lunar series, classic sports-astrology
+//  symbolism (Uranus upsets, Mars aggression, Jupiter luck, Neptune VAR fog).
+//  Computed purely from kickoff time — no result peeking — so finished games
+//  show what the chart "said" beforehand. Entertainment, not prediction.
+// ============================================================================
+const DEG = Math.PI / 180;
+const norm360 = (x) => ((x % 360) + 360) % 360;
+// [a, e, I, L, ϖ, Ω] at J2000 + rates per Julian century (JPL, 1800–2050 AD)
+const ORBITAL_ELEMENTS = {
+  earth:   [1.00000261, 0.01671123, -0.00001531, 100.46457166, 102.93768193, 0,
+            0.00000562, -0.00004392, -0.01294668, 35999.37244981, 0.32327364, 0],
+  mars:    [1.52371034, 0.09339410, 1.84969142, -4.55343205, -23.94362959, 49.55953891,
+            0.00001847, 0.00007882, -0.00813131, 19140.30268499, 0.44441088, -0.29257343],
+  jupiter: [5.20288700, 0.04838624, 1.30439695, 34.39644051, 14.72847983, 100.47390909,
+            -0.00011607, -0.00013253, -0.00183714, 3034.74612775, 0.21252668, 0.20469106],
+  uranus:  [19.18916464, 0.04725744, 0.77263783, 313.23810451, 170.95427630, 74.01692503,
+            -0.00196176, -0.00004397, -0.00242939, 428.48202785, 0.40805281, 0.04240589],
+  neptune: [30.06992276, 0.00859048, 1.77004347, -55.12002969, 44.96476227, 131.78422574,
+            0.00026291, 0.00005105, 0.00035372, 218.45945325, -0.32241464, -0.00508664]
+};
+function helioXY(name, T) {
+  const [a0, e0, I0, L0, w0, O0, da, de, dI, dL, dw, dO] = ORBITAL_ELEMENTS[name];
+  const a = a0 + da * T, e = e0 + de * T, I = (I0 + dI * T) * DEG;
+  const L = L0 + dL * T, wbar = w0 + dw * T, Om = (O0 + dO * T) * DEG;
+  const M = norm360(L - wbar) * DEG, w = wbar * DEG - Om;
+  let E = M;
+  for (let i = 0; i < 6; i++) E = M + e * Math.sin(E);
+  const xv = a * (Math.cos(E) - e), yv = a * Math.sqrt(1 - e * e) * Math.sin(E);
+  const v = Math.atan2(yv, xv), r = Math.sqrt(xv * xv + yv * yv);
+  return {
+    x: r * (Math.cos(Om) * Math.cos(v + w) - Math.sin(Om) * Math.sin(v + w) * Math.cos(I)),
+    y: r * (Math.sin(Om) * Math.cos(v + w) + Math.cos(Om) * Math.sin(v + w) * Math.cos(I))
+  };
+}
+// Geocentric ecliptic longitudes (deg) of the bodies we read.
+function eclipticLongitudes(ms) {
+  const T = (ms / 86400000 + 2440587.5 - 2451545.0) / 36525;
+  const e = helioXY("earth", T);
+  const out = { sun: norm360(Math.atan2(-e.y, -e.x) / DEG) };
+  for (const p of ["mars", "jupiter", "uranus", "neptune"]) {
+    const h = helioXY(p, T);
+    out[p] = norm360(Math.atan2(h.y - e.y, h.x - e.x) / DEG);
+  }
+  const s = (x) => Math.sin(x * DEG);
+  const Lp = 218.3164477 + 481267.88123421 * T, D = 297.8501921 + 445267.1114034 * T,
+    M = 357.5291092 + 35999.0502909 * T, Mp = 134.9633964 + 477198.8675055 * T,
+    F = 93.2720950 + 483202.0175233 * T;
+  out.moon = norm360(Lp + 6.288774 * s(Mp) + 1.274027 * s(2 * D - Mp) + 0.658314 * s(2 * D)
+    + 0.213618 * s(2 * Mp) - 0.185116 * s(M) - 0.114332 * s(2 * F)
+    + 0.058793 * s(2 * (D - Mp)) + 0.057066 * s(2 * D - M - Mp)
+    + 0.053322 * s(2 * D + Mp) + 0.045758 * s(2 * D - M));
+  return out;
+}
+const ASPECT_ANGLES = [[0, "☌"], [60, "⚹"], [90, "□"], [120, "△"], [180, "☍"]];
+const ASPECT_ORB = 5; // degrees
+const PLANET_LABEL = { sun: "Sun", moon: "Moon", mars: "Mars", jupiter: "Jupiter", uranus: "Uranus", neptune: "Neptune" };
+const ASTRO_THEMES = {
+  mars:    { hard: "combative — cards, flare-ups, high aggression", soft: "relentless attacking intensity" },
+  jupiter: { hard: "overconfidence — the favorite made to sweat", soft: "late luck — comeback fortune favors the favorite" },
+  uranus:  { hard: "upset energy — sudden twists, momentum flips", soft: "electric, fast-changing game" },
+  neptune: { hard: "confusion — VAR drama, missed penalties", soft: "inspired flair, but slippery moments" }
+};
+const ZODIAC_SIGNS = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"];
+const ASTRO_BODIES = ["moon", "sun", "mars", "jupiter", "uranus", "neptune"]; // inner → outer
+const astroCache = {};
+function astroFor(m) {
+  if (astroCache[m.n]) return astroCache[m.n];
+  const lg = eclipticLongitudes(matchUtcMs(m));
+  const hits = [];
+  for (let i = 0; i < ASTRO_BODIES.length; i++) {
+    for (let j = i + 1; j < ASTRO_BODIES.length; j++) {
+      const A = ASTRO_BODIES[i], B = ASTRO_BODIES[j]; // B is the outer body
+      if (!ASTRO_THEMES[B]) continue; // Moon–Sun pair carries no game theme
+      let d = Math.abs(lg[A] - lg[B]);
+      if (d > 180) d = 360 - d;
+      for (const [angle, glyph] of ASPECT_ANGLES) {
+        const off = Math.abs(d - angle);
+        if (off > ASPECT_ORB) continue;
+        const hard = angle === 90 || angle === 180 || (angle === 0 && B !== "jupiter");
+        // Moon (then Sun) aspects rank first — they change hour to hour and make
+        // each kickoff unique; slow outer-outer pairs sit in orb for weeks and
+        // would otherwise stamp the same line on every card.
+        const speedBias = A === "moon" ? 0.6 : A === "sun" ? 0.3 : ASTRO_THEMES[A] ? -0.5 : 0;
+        hits.push({
+          strength: (ASPECT_ORB - off) / ASPECT_ORB + speedBias,
+          label: `${PLANET_LABEL[A]} ${glyph} ${PLANET_LABEL[B]}`,
+          theme: ASTRO_THEMES[B][hard ? "hard" : "soft"]
+        });
+      }
+    }
+  }
+  hits.sort((a, b) => b.strength - a.strength);
+  const top = [];
+  for (const h of hits) { // one line per theme — no duplicate storylines
+    if (top.length === 2) break;
+    if (!top.some(t => t.theme === h.theme)) top.push(h);
+  }
+  const res = { moonSign: ZODIAC_SIGNS[Math.floor(lg.moon / 30)], top };
+  astroCache[m.n] = res;
+  return res;
+}
+function astroLine(m) {
+  const a = astroFor(m);
+  const bits = a.top.length
+    ? a.top.map(h => `<b>${h.label}</b> ${h.theme}`)
+    : ["quiet skies — no tight aspects, form should hold"];
+  return `<div class="m-astro">🔮 Moon in ${a.moonSign} · ${bits.join(" · ")}</div>`;
+}
+
+// ============================================================================
 //  Group standings  (FIFA tiebreakers: pts, GD, GF, then head-to-head subgroup)
 // ============================================================================
 const GROUPS = "ABCDEFGHIJKL".split("");
@@ -1195,6 +1308,7 @@ function renderMatch(m, v) {
       </div>
       <div class="m-where">${m.city} · ${m.venue}</div>
       ${weatherLine(m)}
+      ${astroLine(m)}
       <div class="m-window ${v}">${windowLine(m, v)}</div>
     </div>
     <div class="m-actions">
