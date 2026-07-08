@@ -908,6 +908,10 @@ const DEG = Math.PI / 180;
 const norm360 = (x) => ((x % 360) + 360) % 360;
 // [a, e, I, L, ϖ, Ω] at J2000 + rates per Julian century (JPL, 1800–2050 AD)
 const ORBITAL_ELEMENTS = {
+  mercury: [0.38709927, 0.20563593, 7.00497902, 252.25032350, 77.45779628, 48.33076593,
+            0.00000037, 0.00001906, -0.00594749, 149472.67411175, 0.16047689, -0.12534081],
+  venus:   [0.72333566, 0.00677672, 3.39467605, 181.97909950, 131.60246718, 76.67984255,
+            0.00000390, -0.00004107, -0.00078890, 58517.81538729, 0.00268329, -0.27769418],
   earth:   [1.00000261, 0.01671123, -0.00001531, 100.46457166, 102.93768193, 0,
             0.00000562, -0.00004392, -0.01294668, 35999.37244981, 0.32327364, 0],
   mars:    [1.52371034, 0.09339410, 1.84969142, -4.55343205, -23.94362959, 49.55953891,
@@ -938,7 +942,7 @@ function eclipticLongitudes(ms) {
   const T = (ms / 86400000 + 2440587.5 - 2451545.0) / 36525;
   const e = helioXY("earth", T);
   const out = { sun: norm360(Math.atan2(-e.y, -e.x) / DEG) };
-  for (const p of ["mars", "jupiter", "uranus", "neptune"]) {
+  for (const p of ["mercury", "venus", "mars", "jupiter", "uranus", "neptune"]) {
     const h = helioXY(p, T);
     out[p] = norm360(Math.atan2(h.y - e.y, h.x - e.x) / DEG);
   }
@@ -953,16 +957,27 @@ function eclipticLongitudes(ms) {
   return out;
 }
 const ASPECT_ANGLES = [[0, "☌"], [60, "⚹"], [90, "□"], [120, "△"], [180, "☍"]];
-const ASPECT_ORB = 5; // degrees
-const PLANET_LABEL = { sun: "Sun", moon: "Moon", mars: "Mars", jupiter: "Jupiter", uranus: "Uranus", neptune: "Neptune" };
+const ASPECT_ORB = 5;      // degrees, planet–planet
+const MOON_ORB = 8;        // the Moon traditionally gets a wider orb
+const PLANET_LABEL = { sun: "Sun", moon: "Moon", mercury: "Mercury", venus: "Venus", mars: "Mars", jupiter: "Jupiter", uranus: "Uranus", neptune: "Neptune" };
 const ASTRO_THEMES = {
+  mercury: { hard: "mix-ups — misplaced passes, offside-trap chaos", soft: "quick combinations, sharp counters" },
+  venus:   { hard: "style over substance — pretty football, blunt edge", soft: "flowing, easy-on-the-eye attacking play" },
   mars:    { hard: "combative — cards, flare-ups, high aggression", soft: "relentless attacking intensity" },
   jupiter: { hard: "overconfidence — the favorite made to sweat", soft: "late luck — comeback fortune favors the favorite" },
   uranus:  { hard: "upset energy — sudden twists, momentum flips", soft: "electric, fast-changing game" },
   neptune: { hard: "confusion — VAR drama, missed penalties", soft: "inspired flair, but slippery moments" }
 };
 const ZODIAC_SIGNS = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"];
-const ASTRO_BODIES = ["moon", "sun", "mars", "jupiter", "uranus", "neptune"]; // inner → outer
+const MOON_FLAVOR = {
+  Aries: "impatient, front-foot football", Taurus: "patient, physical grind",
+  Gemini: "scrappy and unpredictable", Cancer: "cagey, defensive-minded",
+  Leo: "big-stage performances, showmen step up", Virgo: "tactical chess, fine margins",
+  Libra: "even contest, fine balance", Scorpio: "tense, grudge-match intensity",
+  Sagittarius: "open, end-to-end adventure", Capricorn: "disciplined, hard-nosed",
+  Aquarius: "tactical surprises, oddball moments", Pisces: "dreamy flair or switched-off lapses"
+};
+const ASTRO_BODIES = ["moon", "sun", "mercury", "venus", "mars", "jupiter", "uranus", "neptune"]; // inner → outer
 const astroCache = {};
 function astroFor(m) {
   if (astroCache[m.n]) return astroCache[m.n];
@@ -974,16 +989,18 @@ function astroFor(m) {
       if (!ASTRO_THEMES[B]) continue; // Moon–Sun pair carries no game theme
       let d = Math.abs(lg[A] - lg[B]);
       if (d > 180) d = 360 - d;
+      const orb = A === "moon" ? MOON_ORB : ASPECT_ORB;
       for (const [angle, glyph] of ASPECT_ANGLES) {
         const off = Math.abs(d - angle);
-        if (off > ASPECT_ORB) continue;
-        const hard = angle === 90 || angle === 180 || (angle === 0 && B !== "jupiter");
-        // Moon (then Sun) aspects rank first — they change hour to hour and make
-        // each kickoff unique; slow outer-outer pairs sit in orb for weeks and
-        // would otherwise stamp the same line on every card.
-        const speedBias = A === "moon" ? 0.6 : A === "sun" ? 0.3 : ASTRO_THEMES[A] ? -0.5 : 0;
+        if (off > orb) continue;
+        const hard = angle === 90 || angle === 180 || (angle === 0 && !["venus", "jupiter"].includes(B));
+        // Fast bodies rank first — the Moon shifts hour to hour, Mercury/Venus
+        // day to day, so they make each kickoff unique; slow outer-outer pairs
+        // sit in orb for weeks and would stamp the same line on every card.
+        const speedBias = A === "moon" ? 0.6 : A === "sun" ? 0.3
+          : A === "mercury" ? 0.25 : A === "venus" ? 0.2 : -0.5;
         hits.push({
-          strength: (ASPECT_ORB - off) / ASPECT_ORB + speedBias,
+          strength: (orb - off) / orb + speedBias,
           label: `${PLANET_LABEL[A]} ${glyph} ${PLANET_LABEL[B]}`,
           theme: ASTRO_THEMES[B][hard ? "hard" : "soft"]
         });
@@ -1005,7 +1022,7 @@ function astroLine(m) {
   const bits = a.top.length
     ? a.top.map(h => `<b>${h.label}</b> ${h.theme}`)
     : ["quiet skies — no tight aspects, form should hold"];
-  return `<div class="m-astro">🔮 Moon in ${a.moonSign} · ${bits.join(" · ")}</div>`;
+  return `<div class="m-astro">🔮 Moon in ${a.moonSign} — ${MOON_FLAVOR[a.moonSign]} · ${bits.join(" · ")}</div>`;
 }
 
 // ============================================================================
